@@ -2,6 +2,7 @@
 Adds: typed error codes, hard timeouts, a small disk TTL cache, batch fetch."""
 import hashlib
 import json
+import logging
 import os
 import socket
 import time
@@ -129,6 +130,8 @@ def agent_json(tool: str, url: str, goal: str, schema: dict) -> dict:
         raise ToolError("TinyFish rate limit hit; retry shortly", "RATE_LIMIT") from e
     except (APITimeoutError, RequestTimeoutError) as e:
         raise ToolError(f"TinyFish agent timed out on {url}", "TIMEOUT") from e
+    if os.environ.get("DEBUG_AGENT") == "1":  # off by default: results are not logged in normal operation
+        logging.getLogger("s2m").warning("agent %s status=%s result=%.300r error=%s", tool, r.status, r.result, getattr(r, "error", None))
     if r.status != "COMPLETED" or r.result is None:
         msg = getattr(r.error, "message", r.status)
         raise SiteChangedError(f"{tool}: TinyFish agent failed on {url}: {msg}")
