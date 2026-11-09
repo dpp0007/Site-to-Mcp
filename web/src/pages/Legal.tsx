@@ -21,7 +21,7 @@ export function Privacy() {
           <li><b>Results.</b> Public web content returned by the tool. It is cached on the server for between 10 minutes and one day so repeat calls are fast and cheap, then it expires. The cache is on temporary disk and is cleared when the server restarts.</li>
           <li><b>Access logs.</b> For each request: time, method, path, the name of the API key used, status code and duration. These contain no request bodies, arguments or keys.</li>
           <li><b>Network data.</b> Our hosting providers receive your IP address as part of delivering traffic and may log it. Our application uses IP addresses only to rate-limit public endpoints, in memory, and does not store them.</li>
-          <li><b>API keys.</b> Issued to you once. We keep only a SHA-256 hash and a label so we can check and revoke keys.</li>
+          <li><b>API keys.</b> Keys made on the Setup page are signed, not stored: we keep no record of who created one, only a random id in the key itself. They expire after 30 days. Keys issued by the operator by hand are kept only as a SHA-256 hash and a label. To limit abuse, your IP address is counted in memory (key creation per day and request volume) and is forgotten on restart.</li>
           <li><b>The Setup page.</b> The key you type stays in your browser's memory. It is not saved, and is sent only to the server address you entered, when you press Test connection.</li>
         </ul>
       </Section>

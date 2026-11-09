@@ -53,16 +53,39 @@ export default function Setup() {
     setBusy(false);
   };
 
+  const [gen, setGen] = useState("");
+  const generate = async () => {
+    setBusy(true);
+    setGen("");
+    const r = await call<{ key: string; days: number; limits: { per_minute: number; per_day: number } }>(base, "/api/keys", undefined, {});
+    if (r.ok) {
+      setKey(r.data.key);
+      setHide(false);
+      setGen(`Key created and filled in below. Copy it now: it is shown once and is not stored. It works for ${r.data.days} days, ${r.data.limits.per_minute} calls a minute, ${r.data.limits.per_day} a day.`);
+    } else setGen(`Could not create a key: ${r.error.message}`);
+    setBusy(false);
+  };
+
   const field = "w-full border border-line bg-white px-3 py-2.5 font-mono text-[14px] outline-none transition-colors focus:border-ink";
   const pick = (t: Tab) => snippets.real[t] && <CodeBlock code={snippets.real[t][0]} shown={snippets.shown[t][0]} label={snippets.real[t][1]} />;
 
   return (
     <Page title="Set up your agent" lead="Connect once, then every MCP client, script and terminal can use the same tools. Your API key stays in this page's memory: it is never stored, and only sent to the server address below when you press Test.">
       <Section title="1. Your server and key">
-        <label className="block text-[14px] text-mute">Server address
-          <input className={`${field} mt-1.5`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} aria-label="Server address" />
-        </label>
-        <label className="mt-4 block text-[14px] text-mute">API key (from the service operator)
+        {(() => {
+          const f = (
+            <label className="block text-[14px] text-mute">Server address
+              <input className={`${field} mt-1.5`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} aria-label="Server address" />
+            </label>
+          );
+          return API_URL ? <details className="text-[14px] text-mute"><summary className="cursor-pointer">Connected to {base.replace(/^https?:\/\//, "")}. Use your own server instead</summary><div className="mt-2">{f}</div></details> : f;
+        })()}
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <button type="button" onClick={generate} disabled={busy || !live} className="bg-ink px-4 py-2.5 text-[14px] text-white transition-opacity active:scale-[.98] disabled:opacity-40">Generate my API key</button>
+          <span className="text-[14px] text-mute">Free, no sign-up. Or paste a key you were given.</span>
+        </div>
+        {gen && <p role="status" className="mt-3 border border-line bg-mint px-3 py-2 text-[14px] text-ink">{gen}</p>}
+        <label className="mt-4 block text-[14px] text-mute">API key
           <div className="mt-1.5 flex gap-2">
             <input className={field} type={hide ? "password" : "text"} value={key} onChange={(e) => setKey(e.target.value)} placeholder="s2m_..." autoComplete="off" spellCheck={false} aria-label="API key" />
             <button type="button" onClick={() => setHide(!hide)} className="shrink-0 bg-[#e5e5e5] px-3 text-[13px] text-ink transition-colors hover:bg-[#d9d9d9]">{hide ? "Show" : "Hide"}</button>

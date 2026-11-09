@@ -40,10 +40,41 @@ def load_keys() -> dict[str, str]:
         name, _, h = item.strip().partition(":")
         if name and re.fullmatch(r"[0-9a-f]{64}", h):
             out[h] = name
-    if not out and os.environ.get("ALLOW_ANON") != "1":
+    if not out and not os.environ.get("KEY_SECRET") and os.environ.get("ALLOW_ANON") != "1":
         raise RuntimeError("API_KEYS is empty: refusing to serve the hosted API unauthenticated. "
                            "Create a key with `python keys.py new <name>` (or set ALLOW_ANON=1 for local dev).")
     return out
+
+
+SECRET = os.environ.get("KEY_SECRET", "").encode()          # signs self-serve keys; unset = signup disabled
+KEY_DAYS = int(os.environ.get("KEY_DAYS", "30"))             # self-serve key lifetime
+SIGNUP_PER_DAY = int(os.environ.get("SIGNUP_PER_DAY", "3"))  # keys one IP may mint per day
+USER_PER_MINUTE = int(os.environ.get("USER_PER_MINUTE", "10"))
+USER_PER_DAY = int(os.environ.get("USER_PER_DAY", "60"))     # per self-serve key
+IP_PER_DAY = int(os.environ.get("IP_PER_DAY", "100"))        # per IP across all its keys: minting more keys doesn't help
+GLOBAL_PER_DAY = int(os.environ.get("GLOBAL_PER_DAY", "1000"))  # all self-serve calls together: caps TinyFish spend
+REVOKED = {x.strip() for x in os.environ.get("REVOKED_KEYS", "").split(",") if x.strip()}
+
+
+def _sig(body: str) -> str:
+    return hmac.new(SECRET, body.encode(), hashlib.sha256).hexdigest()[:32]
+
+
+def mint_key() -> tuple[str, int]:
+    """Stateless key: s2m_u.<expiry>.<id>.<sig>. Nothing is stored; the server just re-checks the signature."""
+    import secrets
+    exp, kid = int(time.time()) + KEY_DAYS * 86400, secrets.token_hex(6)
+    return f"s2m_u.{exp}.{kid}.{_sig(f'{exp}.{kid}')}", exp
+
+
+def verify_key(tok: str) -> str | None:
+    """Return 'u:<id>' for a valid, unexpired, unrevoked self-serve key."""
+    p = tok.split(".")
+    if not SECRET or len(p) != 4 or p[0] != "s2m_u" or not p[1].isdigit():
+        return None
+    if not hmac.compare_digest(p[3], _sig(f"{p[1]}.{p[2]}")) or int(p[1]) < time.time() or p[2] in REVOKED:
+        return None
+    return f"u:{p[2]}"
 
 
 class Window:
@@ -87,6 +118,10 @@ class Guard:
             who = self._who(req)
             if who is None:
                 resp = self._json(401, "UNAUTHORIZED", "missing or invalid API key", {"WWW-Authenticate": "Bearer"})
+            elif who.startswith("u:"):  # self-serve key: tighter per-key limits plus per-IP and global caps
+                if (not self.win.allow(f"m:{who}", USER_PER_MINUTE, 60) or not self.win.allow(f"d:{who}", USER_PER_DAY, 86400)
+                        or not self.win.allow(f"ipd:{ip}", IP_PER_DAY, 86400) or not self.win.allow("global", GLOBAL_PER_DAY, 86400)):
+                    resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
             elif not self.win.allow(f"m:{who}", PER_MINUTE, 60) or not self.win.allow(f"d:{who}", PER_DAY, 86400):
                 resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
         elif not self.win.allow(f"ip:{ip}", PUBLIC_PER_MINUTE, 60):
@@ -109,11 +144,13 @@ class Guard:
             log.info("%s %s key=%s status=%s ms=%d", req.method, path, who, status, (time.monotonic() - t0) * 1000)
 
     def _who(self, req: Request) -> str | None:
-        if not self.keys:  # ALLOW_ANON local dev
+        if not self.keys and not SECRET:  # ALLOW_ANON local dev
             return "dev"
         auth = req.headers.get("authorization", "")
         if not auth.lower().startswith("bearer "):
             return None
+        if auth[7:].strip().startswith("s2m_u."):
+            return verify_key(auth[7:].strip())
         digest = hashlib.sha256(auth[7:].strip().encode()).hexdigest()
         for h, name in self.keys.items():  # constant-time compare against every stored hash
             if hmac.compare_digest(h, digest):
@@ -170,6 +207,19 @@ def build_app(mcp):
                              "components": {"securitySchemes": {"bearer": {"type": "http", "scheme": "bearer"}}},
                              "security": [{"bearer": []}]})
 
+    async def signup(request: Request):
+        """Self-serve key. Shown once, expires, tightly rate-limited. Needs KEY_SECRET on the server."""
+        if not SECRET:
+            return Guard._json(404, "NOT_FOUND", "self-serve keys are not enabled on this server")
+        ip = (request.client.host if request.client else "?")
+        if not signup_win.allow(f"su:{ip}", SIGNUP_PER_DAY, 86400):
+            return Guard._json(429, "RATE_LIMIT", f"at most {SIGNUP_PER_DAY} keys per day per network", {"Retry-After": "3600"})
+        key, exp = mint_key()
+        return JSONResponse({"key": key, "expires_at": exp, "days": KEY_DAYS,
+                             "limits": {"per_minute": USER_PER_MINUTE, "per_day": USER_PER_DAY}})
+
+    signup_win = Window()
+    app.add_route("/api/keys", signup, methods=["POST"])
     app.add_route("/api/openapi.json", openapi, methods=["GET"])
     app.add_route("/api/health", health, methods=["GET"])
     app.add_route("/api/tools", tools, methods=["GET"])

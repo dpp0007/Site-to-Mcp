@@ -83,3 +83,27 @@ def test_openapi_for_chatgpt_actions(client):
     op = d["paths"]["/api/tools/list_events_from_page"]["post"]
     assert op["operationId"] == "list_events_from_page" and len(op["summary"]) <= 300
     assert d["components"]["securitySchemes"]["bearer"]["scheme"] == "bearer"
+
+
+def test_self_serve_key_lifecycle(client, monkeypatch):
+    assert client.post("/api/keys").status_code == 404                      # disabled without KEY_SECRET
+    monkeypatch.setattr(api, "SECRET", b"test-secret")
+    monkeypatch.setattr(tf, "agent_json", lambda *a: {"events": [{"name": "A", "start": "2026-11-12T18:00"}]})
+    r = client.post("/api/keys")
+    assert r.status_code == 200 and r.json()["key"].startswith("s2m_u.")
+    key = r.json()["key"]
+    ok = client.post("/api/tools/list_events_from_page", json={"url": "https://luma.com/nyc"}, headers={"Authorization": f"Bearer {key}"})
+    assert ok.status_code == 200
+    bad = key[:-1] + ("0" if key[-1] != "0" else "1")                      # tampered signature
+    assert client.post("/api/tools/list_python_events", json={}, headers={"Authorization": f"Bearer {bad}"}).status_code == 401
+    monkeypatch.setattr(api, "REVOKED", {key.split(".")[2]})
+    assert client.post("/api/tools/list_python_events", json={}, headers={"Authorization": f"Bearer {key}"}).status_code == 401
+    monkeypatch.setattr(api, "REVOKED", set())
+    monkeypatch.setattr(api, "time", type("T", (), {"time": staticmethod(lambda: 9e12), "monotonic": api.time.monotonic}))
+    assert client.post("/api/tools/list_python_events", json={}, headers={"Authorization": f"Bearer {key}"}).status_code == 401  # expired
+
+
+def test_signup_is_limited_per_ip(client, monkeypatch):
+    monkeypatch.setattr(api, "SECRET", b"test-secret")
+    codes = [client.post("/api/keys").status_code for _ in range(api.SIGNUP_PER_DAY + 1)]
+    assert codes[-1] == 429
