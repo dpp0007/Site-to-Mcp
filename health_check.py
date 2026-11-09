@@ -60,8 +60,9 @@ def check_tool(t, by_name) -> dict:
             return {"tool": t.name, "ok": True, "seconds": round(time.time() - t0, 1)}
         except Exception as e:
             code = getattr(e, "code", type(e).__name__)
-            if code == "RATE_LIMIT" and i < attempts - 1:
-                time.sleep(1 + i)
+            if code in {"RATE_LIMIT", "SITE_CHANGED"} and i < attempts - 1:
+                if code == "RATE_LIMIT":
+                    time.sleep(1 + i)
                 continue
             return {"tool": t.name, "ok": False, "seconds": round(time.time() - t0, 1),
                     "code": code, "error": str(e)}
