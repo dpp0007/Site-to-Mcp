@@ -54,6 +54,7 @@ export default function Setup() {
   };
 
   const [gen, setGen] = useState("");
+  const [os, setOs] = useState<"win" | "unix">(typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent) ? "win" : "unix");
   const generate = async () => {
     setBusy(true);
     setGen("");
@@ -116,13 +117,32 @@ export default function Setup() {
               <p>Set authentication to <b>API Key</b>, auth type <b>Bearer</b>, and paste your key. Actions time out after roughly a minute, so prefer the fast tools (everything except <code>get_park_conditions</code> and <code>list_events_from_page</code> on slow pages).</p>
             </>
           )}
-          {tab === "Terminal" && (
-            <>
-              <CodeBlock label="curl" code={`curl -s ${base}/api/tools/mit_get_course \\\n  -H "Authorization: Bearer ${real}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"code":"6.1210"}'`} shown={`curl -s ${base}/api/tools/mit_get_course \\\n  -H "Authorization: Bearer ${hide ? masked : real}" \\\n  -H "Content-Type: application/json" \\\n  -d '{"code":"6.1210"}'`} />
-              <CodeBlock label="s2m CLI (standard library only)" code={`export S2M_URL=${base}\nexport S2M_KEY=${real}\n${REPO_URL ? `pip install git+${REPO_URL}\n` : "# pip install the repository, or run: python cli.py ...\n"}s2m access https://luma.com/nyc\ns2m events https://luma.com/nyc --limit 5\ns2m call mit_get_course code=6.1210`} shown={`export S2M_URL=${base}\nexport S2M_KEY=${hide ? masked : real}\n${REPO_URL ? `pip install git+${REPO_URL}\n` : "# pip install the repository, or run: python cli.py ...\n"}s2m access https://luma.com/nyc\ns2m events https://luma.com/nyc --limit 5\ns2m call mit_get_course code=6.1210`} />
-              <p>Output is JSON on stdout. Errors print <code>[CODE] message</code> to stderr with a non-zero exit code, so it composes with shell scripts and CI.</p>
-            </>
-          )}
+          {tab === "Terminal" && (() => {
+            const nl = "\n";
+            const cmds = (k: string) => {
+              const cli = [REPO_URL ? `pip install git+${REPO_URL}` : "# run from the repository folder: python cli.py ...",
+                "s2m access https://luma.com/nyc", "s2m events https://luma.com/nyc --limit 5", "s2m call mit_get_course code=6.1210"].join(nl);
+              const url = `${base}/api/tools/mit_get_course`;
+              return os === "win"
+                ? { label: "Command Prompt", cli: [`set S2M_URL=${base}`, `set S2M_KEY=${k}`, cli].join(nl),
+                    curl: `curl -s ${url} -H "Authorization: Bearer ${k}" -H "Content-Type: application/json" -d "{\\"code\\":\\"6.1210\\"}"` }
+                : { label: "bash / zsh", cli: [`export S2M_URL=${base}`, `export S2M_KEY=${k}`, cli].join(nl),
+                    curl: [`curl -s ${url} \\`, `  -H "Authorization: Bearer ${k}" \\`, `  -H "Content-Type: application/json" \\`, `  -d '{"code":"6.1210"}'`].join(nl) };
+            };
+            const r = cmds(real), h = cmds(hide ? masked : real);
+            return (
+              <>
+                <div role="tablist" aria-label="Operating system" className="flex gap-1.5">
+                  {([["win", "Windows"], ["unix", "macOS / Linux"]] as const).map(([v, t]) => (
+                    <button key={v} role="tab" aria-selected={os === v} onClick={() => setOs(v)} className={`px-3 py-1 text-[13px] ${os === v ? "bg-ink text-white" : "bg-[#efefef] text-ink hover:bg-[#e5e5e5]"}`}>{t}</button>
+                  ))}
+                </div>
+                <CodeBlock label={`curl (${r.label})`} code={r.curl} shown={h.curl} />
+                <CodeBlock label="s2m CLI (standard library only)" code={r.cli} shown={h.cli} />
+                <p>Output is JSON on stdout. Errors print <code>[CODE] message</code> to stderr with a non-zero exit code, so it composes with scripts and CI.{os === "win" ? " The Windows curl command is one line on purpose: Command Prompt does not support the backslash line breaks used on macOS and Linux." : ""}</p>
+              </>
+            );
+          })()}
         </div>
       </Section>
 
