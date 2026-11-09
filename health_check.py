@@ -53,12 +53,18 @@ def health_args(tool, by_name: dict, offline: bool = False) -> dict:
 
 def check_tool(t, by_name) -> dict:
     t0 = time.time()
-    try:
-        check(t.run(**health_args(t, by_name)).model_dump(mode="json"), t.health.get("expect", []))
-        return {"tool": t.name, "ok": True, "seconds": round(time.time() - t0, 1)}
-    except Exception as e:
-        return {"tool": t.name, "ok": False, "seconds": round(time.time() - t0, 1),
-                "code": getattr(e, "code", type(e).__name__), "error": str(e)}
+    attempts = max(1, int(os.environ.get("HEALTH_RATE_LIMIT_ATTEMPTS", "3")))
+    for i in range(attempts):
+        try:
+            check(t.run(**health_args(t, by_name)).model_dump(mode="json"), t.health.get("expect", []))
+            return {"tool": t.name, "ok": True, "seconds": round(time.time() - t0, 1)}
+        except Exception as e:
+            code = getattr(e, "code", type(e).__name__)
+            if code == "RATE_LIMIT" and i < attempts - 1:
+                time.sleep(1 + i)
+                continue
+            return {"tool": t.name, "ok": False, "seconds": round(time.time() - t0, 1),
+                    "code": code, "error": str(e)}
 
 
 def canary(tools) -> list[dict]:
