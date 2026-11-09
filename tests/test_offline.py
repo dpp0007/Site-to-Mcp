@@ -284,6 +284,46 @@ def test_health_helpers():
     assert health_check.pick({"events": [{"url": None}, {"url": "u"}]}, "events.*.url") == "u"
 
 
+def test_health_retries_rate_limit(monkeypatch):
+    monkeypatch.setattr(health_check, "check", lambda *_: None)
+    monkeypatch.setattr(health_check.time, "sleep", lambda *_: None)
+    calls = []
+
+    class _Result:
+        def model_dump(self, mode="json"):
+            return {"ok": True}
+
+    class _Tool:
+        name = "dummy"
+        health = {"args": {}}
+
+        def run(self, **kwargs):
+            calls.append(1)
+            if len(calls) == 1:
+                raise tf.ToolError("TinyFish rate limit hit; retry shortly", "RATE_LIMIT")
+            return _Result()
+
+    out = health_check.check_tool(_Tool(), {"dummy": _Tool()})
+    assert out["ok"] and len(calls) == 2
+
+
+def test_health_does_not_retry_non_rate_limit(monkeypatch):
+    monkeypatch.setattr(health_check, "check", lambda *_: None)
+    monkeypatch.setattr(health_check.time, "sleep", lambda *_: None)
+    calls = []
+
+    class _Tool:
+        name = "dummy"
+        health = {"args": {}}
+
+        def run(self, **kwargs):
+            calls.append(1)
+            raise tf.ToolError("bad auth", "AUTH")
+
+    out = health_check.check_tool(_Tool(), {"dummy": _Tool()})
+    assert not out["ok"] and out["code"] == "AUTH" and len(calls) == 1
+
+
 # ---- the canary: every tool must fail loudly on a redesigned site -----------------------------
 def test_canary_every_tool_fails_loudly():
     res = health_check.canary(list(TOOLS.values()))
