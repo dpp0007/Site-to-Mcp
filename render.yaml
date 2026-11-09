@@ -1,0 +1,19 @@
+# Render Blueprint: no Docker, native Python runtime. New > Blueprint > pick this repo.
+services:
+  - type: web
+    name: site-to-mcp
+    runtime: python
+    plan: starter            # free works for tests but sleeps; use starter for a real product
+    buildCommand: pip install -r requirements.txt
+    startCommand: python server.py --http
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - {key: PYTHON_VERSION, value: "3.12.7"}
+      - {key: TINYFISH_API_KEY, sync: false}   # secret: set in the Render dashboard, never in git
+      - {key: API_KEYS, sync: false}           # name:sha256 hashes from `python keys.py new <name>`
+      - {key: ALLOWED_ORIGINS, sync: false}    # your Vercel URL, e.g. https://site-to-mcp.vercel.app
+      - {key: ALLOWED_HOSTS, sync: false}      # your Render hostname, e.g. site-to-mcp.onrender.com
+      - {key: RATE_PER_MINUTE, value: "30"}
+      - {key: RATE_PER_DAY, value: "300"}
+      - {key: SITE_CACHE_DIR, value: /tmp/s2m-cache}

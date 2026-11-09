@@ -1,0 +1,18 @@
+name: site-health
+# Tells you when a wrapped website changed and a tool broke - before your agent finds out.
+on:
+  schedule: [{cron: "0 6 * * *"}]   # daily
+  workflow_dispatch: {}
+  push: {branches: [main]}
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - run: pip install -e ".[test]"
+      - run: python -m pytest -q                 # offline tests + the loud-failure canary
+      - run: python health_check.py --json       # LIVE: exit 1 + names the broken tool if a site changed
+        env:
+          TINYFISH_API_KEY: ${{ secrets.TINYFISH_API_KEY }}

@@ -1,0 +1,30 @@
+@import "tailwindcss";
+@import "@fontsource-variable/inter";
+@import "@fontsource-variable/inter-tight";
+@import "@fontsource-variable/jetbrains-mono";
+
+/* Palette measured from the reference clip (96.5% page, mint rings, greys, near-black),
+   plus the mint spoke accent used for the active connection. */
+@theme {
+  --color-page: #fcfcfc;
+  --color-band: #f7f7f7;
+  --color-mint: #ecf7f3;
+  --color-mint-line: #cfeadf;
+  --color-spoke: #2fc08d;
+  --color-line: #e5e6e5;
+  --color-mute: #7a7a7a;
+  --color-ink: #111111;
+  --color-ink-2: #070707;
+  --font-sans: "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Inter Tight Variable", "Inter Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, SFMono-Regular, monospace;
+}
+
+html { background: var(--color-page); color: var(--color-ink); scroll-behavior: smooth; }
+body { margin: 0; font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+::selection { background: var(--color-mint); }
+:focus-visible { outline: 2px solid var(--color-ink); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}

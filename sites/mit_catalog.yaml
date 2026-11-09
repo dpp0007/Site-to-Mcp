@@ -1,0 +1,63 @@
+site: mit-catalog   # catalog.mit.edu - no public API. Read deterministically with TinyFish Fetch (no agent guesswork).
+tools:
+  - name: mit_list_departments
+    description: "List all MIT departments/programs with their course-number prefix (e.g. '6' = EECS). Start here to find a prefix."
+    url: https://catalog.mit.edu/subjects/
+    mode: code
+    handler: mit_parsers:departments
+    output:
+      items: [{code: string, name: string, url: string}]
+    health:
+      expect: ["items>=20", "items.code~6"]
+
+  - name: mit_list_department_courses
+    description: "List subjects in one MIT department by course-number prefix (e.g. '6', '18', '21M')."
+    inputs:
+      department: {type: string, pattern: "[A-Za-z0-9]{1,5}"}
+      limit: {type: integer, default: 50}
+    url: https://catalog.mit.edu/subjects/{department|lower}/
+    mode: code
+    handler: mit_parsers:dept_courses
+    output:
+      items: [{code: string, title: string, units: "string?"}]
+    health:
+      args: {department: "6", limit: 500}
+      expect: ["items>=100", "items.code~6.1210"]
+
+  - name: mit_search_courses
+    description: "Keyword search across all MIT subjects (title + description; every word must match; best title matches first). Optionally restrict to one department prefix. Empty list = genuinely no match."
+    inputs:
+      query: string
+      limit: {type: integer, default: 10}
+      department: {type: string, default: ""}
+    url: https://catalog.mit.edu/subjects/
+    mode: code
+    handler: mit_parsers:search
+    allow_empty: true
+    output:
+      items: [{code: string, title: string, units: "string?"}]
+    health:
+      args: {query: algorithms}
+      expect: ["items>=1", "items.title~algorithm"]
+
+  - name: mit_get_course
+    description: "Full detail for one MIT subject number (e.g. '6.1210'): description, prerequisites (+ parsed prerequisite codes), instructors, terms offered. NOT_FOUND if the subject does not exist."
+    inputs:
+      code: {type: string, pattern: '[A-Za-z0-9]{1,5}\.[A-Za-z0-9]{2,6}(\[J\])?'}
+    url: https://catalog.mit.edu/subjects/{code|before:.}/
+    mode: code
+    handler: mit_parsers:get_course
+    found_field: found
+    output:
+      code: string
+      title: string
+      units: "string?"
+      description: string
+      prerequisites: "string?"
+      prerequisite_codes: [string]
+      instructors: [string]
+      terms: [string]
+    allow_empty: true
+    health:
+      args: {code: "6.1210"}
+      expect: ["title~algorithm", "terms>=1"]
