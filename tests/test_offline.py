@@ -231,13 +231,20 @@ def test_park_code_pattern():
         TOOLS["get_park_conditions"].run(park="not-a-code")
 
 
-def test_agent_wrong_shape_retries_once_then_raises(monkeypatch):
+def test_agent_wrong_shape_retries_then_raises(monkeypatch):
     pages(monkeypatch, "page")
     calls = []
     monkeypatch.setattr(tf, "agent_json", lambda *a: calls.append(1) or {"nothing": 1})
     with pytest.raises(tf.SiteChangedError):
         TOOLS["get_park_conditions"].run(park="zion")
-    assert len(calls) == 2
+    assert len(calls) == tf.AGENT_ATTEMPTS == 3
+
+
+def test_agent_recovers_on_a_later_attempt(monkeypatch):
+    pages(monkeypatch, "page")
+    outs = iter([{"nothing": 1}, {"nothing": 1}, GOOD_PARK])
+    monkeypatch.setattr(tf, "agent_json", lambda *a: next(outs))
+    assert TOOLS["get_park_conditions"].run(park="zion").park_name.startswith("Zion")
 
 
 # ---- cache, robots, errors -------------------------------------------------------------------

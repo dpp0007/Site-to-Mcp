@@ -106,12 +106,9 @@ class Tool:
 
     def run(self, **args):
         self._validate_inputs(args)
-        try:
+        if self.t["mode"] != "agent":
             return self._run(**args)
-        except SiteChangedError:
-            if self.t["mode"] != "agent":
-                raise
-            return self._run(**args)  # agent output is non-deterministic: retry once, then fail loudly
+        return tf.with_retries(lambda: self._run(**args))  # agent output is non-deterministic: retry, then fail loudly
 
     def _validate_inputs(self, args: dict) -> None:
         for k, v in self.inputs.items():

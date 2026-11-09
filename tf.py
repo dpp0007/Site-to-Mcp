@@ -121,6 +121,19 @@ def _agent_run(url: str, goal: str, schema: dict):
         ex.shutdown(wait=False)
 
 
+AGENT_ATTEMPTS = max(1, int(os.environ.get("AGENT_ATTEMPTS", "3")))  # agent output varies run to run
+
+
+def with_retries(fn):
+    """Run an agent call up to AGENT_ATTEMPTS times on SiteChangedError (empty/malformed output), then fail loudly."""
+    for i in range(AGENT_ATTEMPTS):
+        try:
+            return fn()
+        except SiteChangedError:
+            if i == AGENT_ATTEMPTS - 1:
+                raise
+
+
 def agent_json(tool: str, url: str, goal: str, schema: dict) -> dict:
     try:
         r = _agent_run(url, goal, schema)

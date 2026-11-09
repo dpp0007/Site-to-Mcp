@@ -82,7 +82,7 @@ Every error is prefixed with a machine-readable code the agent can act on:
 | `NOT_FOUND` | the course / park / event genuinely does not exist |
 | `BAD_INPUT` | argument failed validation (message says what is valid) |
 | `BLOCKED` | robots.txt disallows automated access |
-| `AUTH` / `RATE_LIMIT` / `TIMEOUT` | TinyFish key invalid / throttled / agent run exceeded `AGENT_TIMEOUT` (150s) |
+| `AUTH` / `RATE_LIMIT` / `TIMEOUT` | TinyFish key invalid / throttled / agent run exceeded `AGENT_TIMEOUT` (240s) |
 
 Design rules: no silent empty lists (a list tool that returns nothing is `SITE_CHANGED` unless the spec says `allow_empty`), search never reports "no match" because an agent misread a page, partial multi-page reads fail instead of returning half the data.
 
@@ -91,14 +91,19 @@ Design rules: no silent empty lists (a list tool that returns nothing is `SITE_C
 python health_check.py                 # LIVE, tools in parallel (~1 min). Exit 1 + "BROKEN <tool>: [SITE_CHANGED] ..." if a site changed
 python health_check.py --json          # machine-readable, for CI / dashboards
 python health_check.py --canary        # OFFLINE: feeds every tool a "redesigned" site and proves each one fails loudly
-python -m pytest                       # 26 offline tests: parsers, typing, error codes, cache, robots, probe, canary
+python -m pytest                       # offline tests: parsers, typing, error codes, cache, robots, probe, canary
 ```
 [`.github/workflows/health.yml`](.github/workflows/health.yml) runs tests + the live check daily (add `TINYFISH_API_KEY` as a repo secret), so you hear about a site redesign before your agent does. Health args accept `today`, `today+7`.
 
-Reliability: results cached on disk (`.cache/`; agent tools 10 min, catalogue pages 1 day; `SITE_CACHE=0` disables), hard agent timeout, retry-once for non-deterministic agent output.
+Reliability: results cached on disk (`.cache/`; agent tools 10 min, catalogue pages 1 day; `SITE_CACHE=0` disables), hard agent timeout, agent tools retry up to `AGENT_ATTEMPTS` (default 3) times on empty or malformed output, then fail loudly.
+
+### Production smoke test
+`S2M_KEY=... python smoke_prod.py` checks the deployed server end to end: health, auth rejection, CORS, REST and MCP calls, a bad-input error and one real agent call (`SMOKE_AGENT=0` skips the slow one).
 
 ## Layout
 `server.py` registers tools · `specs.py` YAML -> typed tools, validation · `tf.py` TinyFish wrapper (errors, cache, timeouts) · `robots.py` robots gate · `probe.py` site vetting · `health_check.py` · `sites/*.yaml` · `mit_parsers.py`, `nyc_parsers.py` · `demo/run_demo.py` · `tests/`
 
 ## Demo
+**Real conversation:** [`demo/live_session.md`](demo/live_session.md) is Claude using the deployed server on 2026-11-09: access check then Luma events, MIT search then course detail, NYC Parks filtered by borough, including a failure and the fix.
+
 `python demo/run_demo.py` drives the real server over the MCP protocol through a chained multi-tool flow and writes `demo/transcript.md` from the live responses. To see it in a model-driven conversation, add the server to Claude Desktop/Code and ask: *"I'm visiting New York on 2026-11-14 and want to take an algorithms course at MIT next term. Find the course and its prerequisites, something free for kids that day, and Python events I could join."*

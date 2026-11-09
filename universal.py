@@ -63,12 +63,7 @@ def _agent(tool: str, url: str, goal: str, schema: dict, validate=lambda d: None
         validate(d)
         return d
 
-    def run():
-        try:
-            return once()
-        except SiteChangedError:
-            return once()  # agent output varies: retry once, then fail loudly
-    return tf.cached(f"{tool}|{url}|{goal}", TTL, run)
+    return tf.cached(f"{tool}|{url}|{goal}", TTL, lambda: tf.with_retries(once))  # retries, then fails loudly
 
 
 def _events_ok(d: dict) -> None:
