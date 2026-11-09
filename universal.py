@@ -35,6 +35,8 @@ class PageEvent(BaseModel):
 class PageEvents(BaseModel):
     source_url: str
     events: list[PageEvent]
+    source: str = "agent"         # "fetch" (fast, repeatable) or "agent" (browser agent)
+    warnings: list[str] = []      # anything the caller must know, e.g. times were not read
 
 
 class Extracted(BaseModel):
@@ -74,6 +76,61 @@ def _events_ok(d: dict) -> None:
                 raise SiteChangedError(f"list_events_from_page: {f}={e[f]!r} for {e.get('name')!r} is not a date/time")
 
 
+LUMA_HOSTS = {"luma.com", "www.luma.com", "lu.ma"}
+_RESERVED = {"discover", "signin", "calendar", "explore", "create", "map", "events", "home", "about", "pricing", "help"}
+_NOISE = re.compile(r"\+\d+|Waitlist|Sold Out|Free|Register|Past Event", re.I)
+
+
+def _norm(x: str) -> str:
+    return re.sub(r"\W+", " ", x or "").strip().lower()
+
+
+def _luma_cards(md: str) -> list[dict]:
+    """Event cards from a Luma city/calendar page's text: '### Name', then 'By host', then the venue."""
+    body = md.split("## Events", 1)[-1]
+    cards = []
+    for block in re.split(r"^### ", body, flags=re.M)[1:]:
+        name, *rest = [ln.strip() for ln in block.split("\n")]
+        lines = [ln for ln in rest if ln and not _NOISE.fullmatch(ln)]
+        host = next((ln for ln in lines if ln.startswith("By ")), None)
+        venue = next((ln for ln in lines if ln != host and not ln.startswith("## ")), None)
+        if name:
+            cards.append({"name": name, "host": host, "location": venue})
+    return cards
+
+
+def _luma_events(url: str, limit: int) -> PageEvents:
+    """Fast, repeatable path for Luma pages: TinyFish Fetch only (no browser agent). Every event link is checked
+    against the title on that event's own page, so a name is never paired with the wrong URL."""
+    page = tf.fetch_page(url, TTL, links=True)
+    cards = _luma_cards(page["text"])[:limit]
+    own = urlsplit(url).path.strip("/").lower()
+    cands: list[str] = []
+    for ln in page["links"]:
+        u = urlsplit(ln)
+        slug = u.path.strip("/")
+        if (u.hostname in LUMA_HOSTS and re.fullmatch(r"[A-Za-z0-9_-]+", slug) and slug.lower() not in _RESERVED | {own}
+                and not u.fragment and not u.query and ln not in cands):
+            cands.append(ln)
+    if not cards or not cands:
+        raise SiteChangedError(f"list_events_from_page: no event cards/links found at {url}; the page layout may have changed")
+    titles = {}
+    for link, text in tf.fetch_many(cands[:limit + 8], TTL).items():
+        m = re.search(r"^# (.+)$", text, re.M)
+        if m:
+            titles[_norm(m.group(1))] = link
+    events = []
+    for c in cards:
+        link = titles.get(_norm(c["name"]))
+        if not link:
+            raise SiteChangedError(f"list_events_from_page: could not match {c['name']!r} to an event page at {url}")
+        events.append(PageEvent(name=c["name"], location=c["location"], url=link,
+                                host=(c["host"] or "").removeprefix("By ") or None))
+    return PageEvents(source_url=url, source="fetch", events=events, warnings=[
+        "start/end times are drawn by the page's JavaScript and were not read; call again with with_dates=true "
+        "to read them with the browser agent (slower, may need a retry)"])
+
+
 def check_site_access(url: str) -> SiteAccess:
     """Before using any tool on a new site: does the site allow automated access to this URL (robots.txt), can
     TinyFish read it, is it behind a bot wall / login, do its terms ban scraping? Verdict ALLOWED, CAUTION or BLOCKED."""
@@ -82,11 +139,16 @@ def check_site_access(url: str) -> SiteAccess:
                       notes=r["notes"], suggested_mode=r.get("mode"))
 
 
-def list_events_from_page(url: str, limit: int = 20) -> PageEvents:
+def list_events_from_page(url: str, limit: int = 20, with_dates: bool = False) -> PageEvents:
     """Events listed on ANY event-listing page, e.g. a Luma city page (https://luma.com/nyc), a meetup/venue calendar.
-    Checks robots.txt first (BLOCKED if disallowed). Returns typed events, never page text."""
+    Checks robots.txt first (BLOCKED if disallowed). Returns typed events, never page text. Luma pages use a fast,
+    repeatable Fetch path (names, hosts, venues, links; no times); set with_dates=true to read start/end times with
+    the slower browser agent. Other sites always use the agent."""
     url = _check_url(url)
     limit = max(1, min(int(limit), 100))
+    if urlsplit(url).hostname in LUMA_HOSTS and not with_dates:
+        robots.require(url)
+        return tf.with_retries(lambda: _luma_events(url, limit))
     goal = (f"This page lists events. They load after the page opens: wait until event cards are visible (do not answer before that, and never answer with an empty list unless the page clearly shows no events), then scroll down to load more and collect up to {limit} events that are actually shown. "
             "For each give: name; start (ISO 8601 like 2026-11-14T18:30 if a date/time is shown, otherwise exactly as "
             "displayed); end (a DATE/TIME only; null unless an explicit end time is shown, cards usually show none); "

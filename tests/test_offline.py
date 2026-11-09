@@ -387,8 +387,8 @@ def test_universal_events_ok_and_limit(monkeypatch):
     ev = {"events": [{"name": "A", "start": "2026-11-12T18:00", "location": "Tribeca", "url": "https://x.test/a"},
                      {"name": "B", "start": "2026-11-13T18:00"}]}
     monkeypatch.setattr(tf, "agent_json", lambda *a: ev)
-    out = universal.list_events_from_page("https://luma.com/nyc", limit=1)
-    assert [e.name for e in out.events] == ["A"] and out.source_url == "https://luma.com/nyc"
+    out = universal.list_events_from_page("https://events.example.org/nyc", limit=1)
+    assert [e.name for e in out.events] == ["A"] and out.source_url == "https://events.example.org/nyc"
 
 
 def test_universal_blocked_by_robots(monkeypatch):
@@ -419,3 +419,41 @@ def test_universal_extract_shapes_records(monkeypatch):
     monkeypatch.setattr(tf, "agent_json", lambda *a: {"items": [{"title": "T", "price": 5, "junk": 1}]})
     out = universal.extract_from_page("https://x.test/list", "products", ["title", "price", "url"])
     assert out.items == [{"title": "T", "price": "5", "url": None}]
+
+
+# ---- Luma fast path (Fetch only) -------------------------------------------------------------
+LUMA_MD = "## Events\n\n### Alpha Dinner\n\n\n\nBy Ann\n\n\n\nTribeca\n\nWaitlist\n\n### Beta Run\n\n\n\nBy Bo & Cy\n\n\n\n180 Maiden Ln\n\n+124\n"
+LUMA_LINKS = ["https://luma.com/", "https://luma.com/discover", "https://luma.com/nyc/map", "https://luma.com/alpha-1", "https://luma.com/beta-2"]
+LUMA_PAGES = {"https://luma.com/alpha-1": "# Alpha Dinner\nstuff", "https://luma.com/beta-2": "# Beta  Run\nstuff"}
+
+
+def luma(monkeypatch, pages=LUMA_PAGES):
+    import robots
+    import universal
+    monkeypatch.setattr(robots, "require", lambda u: None)
+    monkeypatch.setattr(tf, "fetch_page", lambda u, ttl=0, links=False: {"text": LUMA_MD, "links": LUMA_LINKS})
+    monkeypatch.setattr(tf, "fetch_many", lambda urls, ttl=0, batch=8: {u: pages[u] for u in urls if u in pages})
+    return universal
+
+
+def test_luma_fast_path_uses_fetch_and_pairs_names_with_verified_links(monkeypatch):
+    u = luma(monkeypatch)
+    monkeypatch.setattr(tf, "agent_json", lambda *a: pytest.fail("agent must not run on the fast path"))
+    r = u.list_events_from_page("https://luma.com/nyc", 5)
+    assert r.source == "fetch" and [e.name for e in r.events] == ["Alpha Dinner", "Beta Run"]
+    assert r.events[0].url == "https://luma.com/alpha-1" and r.events[0].host == "Ann" and r.events[0].location == "Tribeca"
+    assert r.events[1].host == "Bo & Cy" and r.events[1].location == "180 Maiden Ln"
+    assert r.warnings and "with_dates" in r.warnings[0]
+
+
+def test_luma_fast_path_fails_loudly_when_a_title_cannot_be_matched(monkeypatch):
+    u = luma(monkeypatch, {"https://luma.com/alpha-1": "# Something else", "https://luma.com/beta-2": "# Beta Run"})
+    with pytest.raises(tf.SiteChangedError):
+        u.list_events_from_page("https://luma.com/nyc", 5)
+
+
+def test_luma_with_dates_uses_the_agent(monkeypatch):
+    u = luma(monkeypatch)
+    monkeypatch.setattr(tf, "agent_json", lambda *a: {"events": [{"name": "A", "start": "2026-11-12T18:00"}]})
+    r = u.list_events_from_page("https://luma.com/nyc", 5, with_dates=True)
+    assert r.source == "agent" and r.events[0].start == "2026-11-12T18:00"

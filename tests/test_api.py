@@ -41,7 +41,7 @@ def test_keyed_endpoints_reject_missing_and_wrong_keys(client):
 
 def test_rest_call_returns_typed_json(client, monkeypatch):
     monkeypatch.setattr(tf, "agent_json", lambda *a: {"events": [{"name": "A", "start": "2026-11-12T18:00"}]})
-    r = client.post("/api/tools/list_events_from_page", json={"url": "https://luma.com/nyc", "limit": 3}, headers=AUTH)
+    r = client.post("/api/tools/list_events_from_page", json={"url": "https://events.example.org/nyc", "limit": 3}, headers=AUTH)
     assert r.status_code == 200 and r.json()["events"][0]["name"] == "A"
 
 
@@ -92,7 +92,7 @@ def test_self_serve_key_lifecycle(client, monkeypatch):
     r = client.post("/api/keys")
     assert r.status_code == 200 and r.json()["key"].startswith("s2m_u.")
     key = r.json()["key"]
-    ok = client.post("/api/tools/list_events_from_page", json={"url": "https://luma.com/nyc"}, headers={"Authorization": f"Bearer {key}"})
+    ok = client.post("/api/tools/list_events_from_page", json={"url": "https://events.example.org/nyc"}, headers={"Authorization": f"Bearer {key}"})
     assert ok.status_code == 200
     bad = key[:-1] + ("0" if key[-1] != "0" else "1")                      # tampered signature
     assert client.post("/api/tools/list_python_events", json={}, headers={"Authorization": f"Bearer {bad}"}).status_code == 401
