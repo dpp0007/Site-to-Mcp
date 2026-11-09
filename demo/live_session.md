@@ -36,7 +36,12 @@ The second call used the first call's output. The Fetch parser extracted prerequ
 `start_time`, `end_time`, `venue`, `park`, `borough`, `categories` and `free: true`, for example *NYRR Open Run: Canarsie Park, 08:45-10:00, free*.
 
 ## 4. What went wrong, and what we did about it
-The first two `list_events_from_page` calls on `luma.com/nyc` failed with `[SITE_CHANGED] no events found`: the TinyFish
-agent run completed but returned nothing. The tool did not return an empty list or invented data; it failed loudly with a
-reason. Agent output varies run to run, so agent tools now retry up to `AGENT_ATTEMPTS` (default 3) times before failing,
-and a third attempt returned the events above. The retry and the loud failure are both covered by offline tests.
+Reading Luma with the browser agent was unreliable from the deployed server: the first two `list_events_from_page` calls
+failed with `[SITE_CHANGED] no events found` (the agent run completed but returned nothing), and repeated measurements
+succeeded only some of the time even with retries. The tool failed loudly each time rather than returning empty or
+invented data. Retrying more did not fix it, so the design changed:
+
+- **Default for Luma pages is TinyFish Fetch only**: names, hosts, venues and links in about 8 seconds, identical on every
+  run. Every link is verified against the title on that event's own page, so a name is never paired with the wrong URL.
+- Start/end times are drawn by the page's JavaScript and are not in what Fetch returns. The result says so in `warnings`
+  and in `source: "fetch"`. Pass `with_dates=true` to read times with the browser agent (slower, may need a retry).

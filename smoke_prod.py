@@ -73,10 +73,16 @@ check("MCP tools/call", s == 200 and not j.get("result", {}).get("isError", True
 s, b, _ = req("/mcp", {"jsonrpc": "2.0", "id": 9, "method": "tools/list"}, key="")
 check("MCP without key is rejected", s == 401, str(s))
 
-if os.environ.get("SMOKE_AGENT", "1") == "1":  # real TinyFish browser agent: slow (20-120 s) and uses credits
+t = time.time()
+s, b, _ = req("/api/tools/list_events_from_page", {"url": "https://luma.com/nyc", "limit": 5})
+d = json.loads(b) if s == 200 else {}
+check("events from luma.com/nyc (Fetch path, fast)", s == 200 and len(d.get("events", [])) == 5 and d.get("source") == "fetch",
+      f"{len(d.get('events', []))} events in {time.time() - t:.0f}s" if s == 200 else b[:150])
+if os.environ.get("SMOKE_AGENT", "0") == "1":  # real TinyFish browser agent reading times: slow (30-240 s), flaky, uses credits
     t = time.time()
-    s, b, _ = req("/api/tools/list_events_from_page", {"url": "https://luma.com/nyc", "limit": 3})
+    s, b, _ = req("/api/tools/list_events_from_page", {"url": "https://luma.com/nyc", "limit": 3, "with_dates": True})
     ev = json.loads(b).get("events", []) if s == 200 else []
-    check("agent: events from luma.com/nyc", s == 200 and len(ev) > 0, f"{len(ev)} events in {time.time() - t:.0f}s" if s == 200 else b[:150])
+    check("agent: event times from luma.com/nyc (with_dates)", s == 200 and any(e.get("start") for e in ev),
+          f"{len(ev)} events in {time.time() - t:.0f}s" if s == 200 else b[:150])
 print("\nALL PASSED" if not bad else f"\n{bad} FAILED")
 sys.exit(1 if bad else 0)

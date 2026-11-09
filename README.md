@@ -100,7 +100,7 @@ Evidence: [`demo/health_evidence.md`](demo/health_evidence.md) (green live run a
 Reliability: results cached on disk (`.cache/`; agent tools 10 min, catalogue pages 1 day; `SITE_CACHE=0` disables), hard agent timeout, agent tools retry up to `AGENT_ATTEMPTS` (default 3) times on empty or malformed output, then fail loudly.
 
 ### Production smoke test
-`S2M_KEY=... python smoke_prod.py` checks the deployed server end to end: health, auth rejection, CORS, REST and MCP calls, a bad-input error and one real agent call (`SMOKE_AGENT=0` skips the slow one).
+`S2M_KEY=... python smoke_prod.py` checks the deployed server end to end: health, auth rejection, CORS, REST and MCP calls, a bad-input error and a fast Luma events call (`SMOKE_AGENT=1` adds the slow browser-agent call that reads event times).
 
 ## Layout
 `server.py` registers tools · `specs.py` YAML -> typed tools, validation · `tf.py` TinyFish wrapper (errors, cache, timeouts) · `robots.py` robots gate · `probe.py` site vetting · `health_check.py` · `sites/*.yaml` · `mit_parsers.py`, `nyc_parsers.py` · `demo/run_demo.py` · `tests/`
