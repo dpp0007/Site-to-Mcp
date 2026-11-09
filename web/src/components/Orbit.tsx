@@ -1,6 +1,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { useEffect, useState } from "react";
 import { useFit, useMedia } from "../lib/hooks";
+import { Gate } from "./Mark";
 import { Tile, type TileDef } from "./Tile";
 
 /* Everything below is in SOURCE PIXELS of the 1896 x 1080 reference frame; the stage is scaled as one unit. */
@@ -84,7 +85,7 @@ function Diagram({ step, still }: { step: number; still: boolean }) {
 
       {/* hub */}
       <div className="absolute grid place-items-center rounded-[50%] bg-white" style={{ left: HUB.x - 47, top: HUB.y - 28, width: 94, height: 56, boxShadow: "0 10px 34px rgba(0,0,0,.13)" }}>
-        <svg width="46" height="22" viewBox="0 0 46 22" aria-hidden="true"><path d="M2 2 L20 11 L2 20 Z M44 2 L26 11 L44 20 Z" fill="#070707" /></svg>
+        <Gate size={25} className="text-ink-2" />
       </div>
 
       {/* tiles */}

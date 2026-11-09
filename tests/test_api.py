@@ -126,3 +126,30 @@ def test_generated_key_in_path_works_and_never_logs_the_key(client, monkeypatch,
         assert client.post("/mcp/s2m_u.1.x.y", json={}).status_code == 401
         assert client.post(f"/api/tools/list_python_events/{key}", json={}).status_code in (401, 404)
     assert key not in caplog.text and "auth=path" in caplog.text
+
+
+def test_client_ip_ignores_spoofed_left_hand_forwarded_for():
+    scope = {"headers": [(b"x-forwarded-for", b"1.2.3.4, 203.0.113.9")], "client": ("10.0.0.1", 0)}
+    assert api.client_ip(scope) == "203.0.113.9"                      # the proxy-appended entry, not the client's claim
+    assert api.client_ip({"headers": [], "client": ("10.0.0.1", 0)}) == "10.0.0.1"
+
+
+def test_signup_limit_cannot_be_dodged_with_forged_forwarded_for(client, monkeypatch):
+    monkeypatch.setattr(api, "SECRET", b"test-secret")
+    codes = [client.post("/api/keys", headers={"X-Forwarded-For": f"9.9.9.{i}, 198.51.100.7"}).status_code for i in range(api.SIGNUP_PER_DAY + 2)]
+    assert 429 in codes
+
+
+def test_chunked_body_over_the_cap_is_rejected(client):
+    def body():
+        for _ in range(8):
+            yield b"x" * 10000
+    r = client.post("/api/tools/list_python_events", content=body(), headers={**AUTH, "content-type": "application/json"})
+    assert r.status_code == 413
+
+
+def test_rate_limiter_memory_is_bounded():
+    w = api.Window()
+    for i in range(20050):
+        w.allow(f"k{i}", 1, 0.0)  # window of 0s: every entry is immediately stale
+    assert len(w.hits) < 20050

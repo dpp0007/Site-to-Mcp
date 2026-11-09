@@ -1,4 +1,6 @@
-# site-to-mcp
+# Wicket
+
+> A small door into the web, for agents. (Repository and package name: `site-to-mcp`; CLI: `wicket` or `s2m`.)
 
 Turn websites with **no API** into typed MCP tools for your agent. Describe a site in a small YAML file (plus an optional parser); the server registers each entry as a real MCP tool with typed inputs and a typed output, and [TinyFish](https://docs.tinyfish.ai) does the reading and clicking underneath.
 

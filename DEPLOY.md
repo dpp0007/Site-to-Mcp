@@ -1,4 +1,4 @@
-# Deploy: Render (API) + Vercel (website). No Docker.
+# Deploy Wicket: Render (API) + Vercel (website). No Docker.
 
 ```
 Claude / Cursor / ChatGPT / curl / s2m CLI  --Bearer key-->  Render: python server.py --http  --TinyFish key (server only)-->  TinyFish
@@ -49,3 +49,10 @@ Then open the website > Setup, enter the URL and key, press **Test connection**.
 
 ## What stays server-side
 TinyFish key; API key list (hashed); rate limiting; robots.txt enforcement; request validation; the result cache. The website holds no secrets: a key typed into Setup lives in page memory only.
+
+## Operating notes
+- **Turn off Auto-Deploy on Render** (Settings, Build & Deploy) if you ever deploy by hand. Render can replay delayed GitHub webhooks and redeploy an *older* commit over newer code. Deploy "Latest commit" manually and check `list_deploys` shows your newest commit.
+- **Self-serve keys** need `KEY_SECRET` (any long random string). Without it the website's Generate button reports "not enabled". Rotating `KEY_SECRET` revokes every generated key at once.
+- **Client IPs** come from the right-hand entry of `X-Forwarded-For` (`TRUST_PROXY_HOPS`, default 1 for Render). Do not put another proxy in front without raising it.
+- **Keep-alive**: set the GitHub repo variable `RENDER_URL` so `.github/workflows/keepalive.yml` pings `/api/health` every 10 minutes. Best effort only; a paid plan does not sleep.
+

@@ -1,4 +1,4 @@
-"""site-to-mcp server.
+"""Wicket (site-to-mcp) server.
 
   python server.py            stdio  (Claude Desktop / Claude Code / Cursor launch it locally)
   python server.py --http     hosted: MCP at /mcp, REST at /api/*, auth + limits (Render, any Python host)
@@ -29,7 +29,7 @@ def _hosts() -> TransportSecuritySettings | None:
                                      allowed_origins=[f"https://{h}" for h in hosts])
 
 
-mcp = FastMCP("site-to-mcp", stateless_http=True, json_response=True, transport_security=_hosts(),
+mcp = FastMCP("wicket", stateless_http=True, json_response=True, transport_security=_hosts(),
               instructions="Turns websites with no API into typed tools. Call check_site_access on a new URL first; "
                            "errors start with a [CODE] such as NOT_FOUND, BAD_INPUT, BLOCKED or SITE_CHANGED.")
 
@@ -59,8 +59,8 @@ def main() -> None:
 
     from api import build_app
     host, port = os.environ.get("HOST", "0.0.0.0"), int(os.environ.get("PORT", "8000"))
-    uvicorn.run(build_app(mcp), host=host, port=port, log_level="info", access_log=False, proxy_headers=True,
-                forwarded_allow_ips="*", server_header=False)  # access_log off: ?key= must never reach logs; Guard logs path only. Behind Render's proxy: trust X-Forwarded-For
+    uvicorn.run(build_app(mcp), host=host, port=port, log_level="info", access_log=False, proxy_headers=False,
+                server_header=False)  # access_log off: ?key= must never reach logs (Guard logs path only); client IP comes from api.client_ip()
 
 
 if __name__ == "__main__":

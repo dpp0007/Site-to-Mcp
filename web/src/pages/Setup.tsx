@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { call, type ToolInfo } from "../lib/api";
-import { API_URL, PLACEHOLDER_URL, REPO_URL } from "../lib/config";
+import { API_URL, BRAND, PLACEHOLDER_URL, REPO_URL } from "../lib/config";
 import { CodeBlock, Page, Section } from "../components/ui";
 
 const TABS = ["Claude Code", "Claude Desktop", "Cursor", "ChatGPT", "Terminal", "Any MCP client"] as const;
@@ -32,9 +32,9 @@ export default function Setup() {
 
   const snippets = useMemo(() => {
     const make = (k: string) => ({
-      "Claude Code": [`claude mcp add --transport http site-to-mcp ${base}/mcp \\\n  --header "Authorization: Bearer ${k}"`, "terminal"],
-      "Claude Desktop": [JSON.stringify({ mcpServers: { "site-to-mcp": { command: "npx", args: ["-y", "mcp-remote", `${base}/mcp`, "--header", "Authorization:${AUTH}"], env: { AUTH: `Bearer ${k}` } } } }, null, 2), "claude_desktop_config.json"],
-      Cursor: [JSON.stringify({ mcpServers: { "site-to-mcp": { url: `${base}/mcp`, headers: { Authorization: `Bearer ${k}` } } } }, null, 2), ".cursor/mcp.json"],
+      "Claude Code": [`claude mcp add --transport http wicket ${base}/mcp \\\n  --header "Authorization: Bearer ${k}"`, "terminal"],
+      "Claude Desktop": [JSON.stringify({ mcpServers: { wicket: { command: "npx", args: ["-y", "mcp-remote", `${base}/mcp`, "--header", "Authorization:${AUTH}"], env: { AUTH: `Bearer ${k}` } } } }, null, 2), "claude_desktop_config.json"],
+      Cursor: [JSON.stringify({ mcpServers: { wicket: { url: `${base}/mcp`, headers: { Authorization: `Bearer ${k}` } } } }, null, 2), ".cursor/mcp.json"],
       "Any MCP client": [`URL:     ${base}/mcp\nHeader:  Authorization: Bearer ${k}\nTransport: Streamable HTTP (stateless, JSON responses)`, "settings"],
     } as Record<string, [string, string]>);
     return { real: make(real), shown: make(hide ? masked : real) };
@@ -54,6 +54,7 @@ export default function Setup() {
   };
 
   const [gen, setGen] = useState("");
+  useEffect(() => { if (window.location.hash === "#key") setTimeout(() => document.getElementById("key")?.scrollIntoView({ block: "start" }), 60); }, []);
   const [os, setOs] = useState<"win" | "unix">(typeof navigator !== "undefined" && /Windows/i.test(navigator.userAgent) ? "win" : "unix");
   const generate = async () => {
     setBusy(true);
@@ -71,33 +72,32 @@ export default function Setup() {
   const pick = (t: Tab) => snippets.real[t] && <CodeBlock code={snippets.real[t][0]} shown={snippets.shown[t][0]} label={snippets.real[t][1]} />;
 
   return (
-    <Page title="Set up your agent" lead="Connect once, then every MCP client, script and terminal can use the same tools. Your API key stays in this page's memory: it is never stored, and only sent to the server address below when you press Test.">
-      <Section title="1. Your server and key">
-        {(() => {
-          const f = (
-            <label className="block text-[14px] text-mute">Server address
-              <input className={`${field} mt-1.5`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} aria-label="Server address" />
-            </label>
-          );
-          return API_URL ? <details className="text-[14px] text-mute"><summary className="cursor-pointer">Connected to {base.replace(/^https?:\/\//, "")}. Use your own server instead</summary><div className="mt-2">{f}</div></details> : f;
-        })()}
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={generate} disabled={busy || !live} className="bg-ink px-4 py-2.5 text-[14px] text-white transition-opacity active:scale-[.98] disabled:opacity-40">Generate my API key</button>
-          <span className="text-[14px] text-mute">Free, no sign-up. Or paste a key you were given.</span>
-        </div>
-        {gen && <p role="status" className="mt-3 border border-line bg-mint px-3 py-2 text-[14px] text-ink">{gen}</p>}
-        <label className="mt-4 block text-[14px] text-mute">API key
-          <div className="mt-1.5 flex gap-2">
-            <input className={field} type={hide ? "password" : "text"} value={key} onChange={(e) => setKey(e.target.value)} placeholder="s2m_..." autoComplete="off" spellCheck={false} aria-label="API key" />
-            <button type="button" onClick={() => setHide(!hide)} className="shrink-0 bg-[#e5e5e5] px-3 text-[13px] text-ink transition-colors hover:bg-[#d9d9d9]">{hide ? "Show" : "Hide"}</button>
+    <Page title={`Set up ${BRAND}`} lead="Three steps: get a key, connect your client, check it works. About a minute.">
+      <div id="key" className="scroll-mt-6">
+        <Section title="1. Get your key">
+          {(() => {
+            const f = (
+              <label className="block text-[14px] text-mute">Server address
+                <input className={`${field} mt-1.5`} value={url} onChange={(e) => setUrl(e.target.value)} spellCheck={false} aria-label="Server address" />
+              </label>
+            );
+            return API_URL ? <details className="text-[14px] text-mute"><summary className="cursor-pointer">Connected to {base.replace(/^https?:\/\//, "")}. Use your own server instead</summary><div className="mt-2">{f}</div></details> : f;
+          })()}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button type="button" onClick={generate} disabled={busy || !live} className="bg-ink px-5 py-3 text-[15px] text-white transition-opacity hover:opacity-85 active:scale-[.98] disabled:opacity-40">{key.startsWith("s2m_u.") ? "Generate another key" : "Generate my API key"}</button>
+            <span className="text-[14px] text-mute">Free, no sign-up, lasts 30 days. Or paste a key you were given.</span>
           </div>
-        </label>
-        <div className="mt-4 flex flex-wrap items-center gap-3">
-          <button type="button" onClick={runTest} disabled={busy || !live} className="bg-ink px-4 py-2.5 text-[14px] text-white transition-opacity active:scale-[.98] disabled:opacity-40">{busy ? "Testing..." : "Test connection"}</button>
-          {!live && <span className="text-[14px] text-mute">Enter your deployed server address to enable the test.</span>}
-        </div>
-        {test && <p role="status" className="border border-line bg-mint px-3 py-2 text-[14px] text-ink">{test}</p>}
-      </Section>
+          {gen && <p role="status" className="mt-3 border border-mint-line bg-mint px-3.5 py-2.5 text-[14px] text-ink">{gen}</p>}
+          <label className="mt-4 block text-[14px] text-mute">Your API key
+            <div className="mt-1.5 flex gap-2">
+              <input className={field} type={hide ? "password" : "text"} value={key} onChange={(e) => setKey(e.target.value)} placeholder="s2m_..." autoComplete="off" spellCheck={false} aria-label="API key" />
+              <button type="button" onClick={() => setHide(!hide)} className="shrink-0 bg-[#e5e5e5] px-3 text-[13px] text-ink transition-colors hover:bg-[#d9d9d9]">{hide ? "Show" : "Hide"}</button>
+              {key.trim() && <button type="button" onClick={() => navigator.clipboard?.writeText(key.trim()).catch(() => undefined)} className="shrink-0 bg-[#e5e5e5] px-3 text-[13px] text-ink transition-colors hover:bg-[#d9d9d9]">Copy</button>}
+            </div>
+          </label>
+          <p className="text-[13.5px] text-mute">The key lives in this page's memory only. Reloading clears it, so copy it somewhere safe.</p>
+        </Section>
+      </div>
 
       <Section title="2. Connect a client">
         <div role="tablist" aria-label="Client" className="flex flex-wrap gap-1.5">
@@ -106,7 +106,7 @@ export default function Setup() {
           ))}
         </div>
         <div className="mt-4 space-y-4">
-          {tab === "Claude Code" && <>{pick("Claude Code")}<p>Then run <code>/mcp</code> inside Claude Code to confirm <code>site-to-mcp</code> is connected.</p></>}
+          {tab === "Claude Code" && <>{pick("Claude Code")}<p>Then run <code>/mcp</code> inside Claude Code to confirm <code>wicket</code> is connected.</p></>}
           {tab === "Claude Desktop" && <>{pick("Claude Desktop")}<p>Add this to <code>claude_desktop_config.json</code> (Settings, Developer, Edit config) and restart. Node.js is needed for the <code>mcp-remote</code> bridge. On newer plans you can instead add <code>{base}/mcp</code> as a custom connector.</p></>}
           {tab === "Cursor" && <>{pick("Cursor")}<p>Cursor reads remote servers directly. Reload the window after saving.</p></>}
           {tab === "Any MCP client" && <>{pick("Any MCP client")}<p>Any client that speaks MCP over Streamable HTTP can connect with a Bearer header.</p></>}
@@ -148,7 +148,19 @@ export default function Setup() {
         </div>
       </Section>
 
-      <Section title="3. What your agent can use">
+      <Section title="3. Check it works">
+        <div className="flex flex-wrap items-center gap-3">
+          <button type="button" onClick={runTest} disabled={busy || !live} className="bg-ink px-5 py-3 text-[15px] text-white transition-opacity hover:opacity-85 active:scale-[.98] disabled:opacity-40">{busy ? "Testing…" : "Test connection"}</button>
+          {!live && <span className="text-[14px] text-mute">Enter your server address to enable the test.</span>}
+        </div>
+        {test && <p role="status" className="border border-mint-line bg-mint px-3.5 py-2.5 text-[14px] text-ink">{test}</p>}
+        <p>Then ask your agent something. Try:</p>
+        <CodeBlock code={"Check whether luma.com/delhi allows automation, then list five events there."} />
+        <CodeBlock code={"Find an MIT machine learning course and tell me its prerequisites."} />
+        <p>It calls <code>check_site_access</code> first. If a site disallows automation you get <code>[BLOCKED]</code> and nothing is fetched. More in the <a href="/docs#recipes">docs</a>.</p>
+      </Section>
+
+      <Section title="4. What your agent can use">
         {tools ? (
           <ul className="!ml-0 divide-y divide-line border-y border-line">
             {tools.map((t) => (
@@ -163,9 +175,6 @@ export default function Setup() {
         )}
       </Section>
 
-      <Section title="Try it">
-        <p>Ask your agent: <i>“Check whether luma.com/nyc allows automation, then list five events on that page.”</i> It will call <code>check_site_access</code> first, then <code>list_events_from_page</code>. If a site disallows automated access you get <code>[BLOCKED]</code> and nothing is fetched.</p>
-      </Section>
     </Page>
   );
 }

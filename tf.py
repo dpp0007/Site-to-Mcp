@@ -125,12 +125,14 @@ AGENT_ATTEMPTS = max(1, int(os.environ.get("AGENT_ATTEMPTS", "3")))  # agent out
 
 
 def with_retries(fn):
-    """Run an agent call up to AGENT_ATTEMPTS times on SiteChangedError (empty/malformed output), then fail loudly."""
+    """Run an agent call up to AGENT_ATTEMPTS times on SiteChangedError (empty/malformed output), then fail loudly.
+    Stops early once AGENT_TIMEOUT has been spent, so a broken page costs at most about two runs, not minutes more."""
+    t0 = time.monotonic()
     for i in range(AGENT_ATTEMPTS):
         try:
             return fn()
         except SiteChangedError:
-            if i == AGENT_ATTEMPTS - 1:
+            if i == AGENT_ATTEMPTS - 1 or time.monotonic() - t0 > AGENT_TIMEOUT:
                 raise
 
 

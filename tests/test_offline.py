@@ -269,6 +269,7 @@ def test_robots_rules_are_applied(monkeypatch):
     rp = RobotFileParser()
     rp.parse(["User-agent: *", "Disallow: /private/", "Crawl-delay: 3"])
     robots._rp["https://x.test"] = rp
+    monkeypatch.setattr(robots, "_public", lambda host: True)
     assert robots.check("https://x.test/public")[0] and not robots.check("https://x.test/private/a")[0]
     assert "crawl-delay 3" in robots.check("https://x.test/public")[1]
 
@@ -457,3 +458,12 @@ def test_luma_with_dates_uses_the_agent(monkeypatch):
     monkeypatch.setattr(tf, "agent_json", lambda *a: {"events": [{"name": "A", "start": "2026-11-12T18:00"}]})
     r = u.list_events_from_page("https://luma.com/nyc", 5, with_dates=True)
     assert r.source == "agent" and r.events[0].start == "2026-11-12T18:00"
+
+
+def test_robots_refuses_private_hosts_and_private_redirects(monkeypatch):
+    monkeypatch.undo()
+    assert not robots.check("http://127.0.0.1/x")[0] and not robots.check("http://10.1.2.3/x")[0]
+    assert not robots._public("localhost")
+    h = robots._SafeRedirect()
+    with pytest.raises(OSError):
+        h.redirect_request(None, None, 302, "Found", {}, "http://169.254.169.254/latest/meta-data")

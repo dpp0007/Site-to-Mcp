@@ -13,6 +13,7 @@ site-to-mcp = "server:main"
 site-to-mcp-health = "health_check:main_cli"
 site-to-mcp-probe = "probe:main_cli"
 s2m = "cli:main"
+wicket = "cli:main"
 
 [tool.setuptools]
 py-modules = ["server", "tf", "specs", "robots", "universal", "api", "keys", "cli", "mit_parsers", "nyc_parsers", "health_check", "probe"]

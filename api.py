@@ -77,6 +77,20 @@ def verify_key(tok: str) -> str | None:
     return f"u:{p[2]}"
 
 
+TRUST_HOPS = int(os.environ.get("TRUST_PROXY_HOPS", "1"))   # proxies in front of us that append to X-Forwarded-For (Render: 1)
+
+
+def client_ip(scope) -> str:
+    """The caller's IP. X-Forwarded-For is client-controlled on the left; only entries our own proxies appended
+    (the right-hand TRUST_HOPS) can be trusted, so take the entry that many places from the right."""
+    for k, v in scope.get("headers", []):
+        if k == b"x-forwarded-for":
+            parts = [x.strip() for x in v.decode("latin-1").split(",") if x.strip()]
+            if len(parts) >= TRUST_HOPS > 0:
+                return parts[-TRUST_HOPS]
+    return (scope.get("client") or ("?",))[0]
+
+
 class Window:
     """Sliding-window counter: allow(key, limit, seconds)."""
     def __init__(self):
@@ -86,10 +100,17 @@ class Window:
         now, q = time.monotonic(), self.hits[key]
         while q and now - q[0] > seconds:
             q.popleft()
+        if len(self.hits) > 20000:  # bound memory: drop keys whose hits are all older than a day
+            for k in [k for k, d in self.hits.items() if not d or now - d[-1] > 86400]:
+                del self.hits[k]
         if len(q) >= limit:
             return False
         q.append(now)
         return True
+
+
+class _TooBig(BaseException):  # BaseException so handlers that catch Exception cannot swallow it
+    pass
 
 
 class Guard:
@@ -108,8 +129,9 @@ class Guard:
         m = re.fullmatch(r"/mcp/(s2m_u\.[A-Za-z0-9._-]+)/?", scope["path"])
         if m:  # key in the URL path (clients that drop query strings): move it out of the path before anything logs it
             scope = {**scope, "path": "/mcp", "raw_path": b"/mcp", "path_key": m.group(1)}
+        scope = {**scope, "client_ip": client_ip(scope)}
         req = Request(scope)
-        path, ip = scope["path"], (scope.get("client") or ("?",))[0]
+        path, ip = scope["path"], scope["client_ip"]
         how = ("header" if req.headers.get("authorization") else "path" if scope.get("path_key")
                else "query" if req.query_params.get("key") else "none")
         keyed = path.startswith("/mcp") or (path.startswith("/api/tools/") and req.method == "POST")
@@ -131,12 +153,21 @@ class Guard:
                 resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
         elif not self.win.allow(f"ip:{ip}", PUBLIC_PER_MINUTE, 60):
             resp = self._json(429, "RATE_LIMIT", "too many requests", {"Retry-After": "60"})
-        status = 0
+        status, got, started = 0, 0, False
+
+        async def recv():  # Content-Length can be absent (chunked): count what actually arrives
+            nonlocal got
+            msg = await receive()
+            if msg["type"] == "http.request":
+                got += len(msg.get("body", b""))
+                if got > MAX_BODY:
+                    raise _TooBig
+            return msg
 
         async def send_h(msg):
-            nonlocal status
+            nonlocal status, started
             if msg["type"] == "http.response.start":
-                status = msg["status"]
+                status, started = msg["status"], True
                 msg["headers"] = [*msg.get("headers", []), *[(k.lower().encode(), v.encode()) for k, v in HEADERS.items()
                                                              if k.lower().encode() not in {h[0] for h in msg.get("headers", [])}]]
             await send(msg)
@@ -144,7 +175,10 @@ class Guard:
             if resp is not None:
                 await resp(scope, receive, send_h)
             else:
-                await self.app(scope, receive, send_h)
+                await self.app(scope, recv, send_h)
+        except _TooBig:
+            if not started:
+                await self._json(413, "BAD_INPUT", "request body too large")(scope, receive, send_h)
         finally:  # log who/what/how long only: never bodies, arguments or keys
             log.info("%s %s key=%s auth=%s status=%s ms=%d", req.method, re.sub(r"s2m_u\.[\w.-]+", "s2m_u.***", path), who, how, status, (time.monotonic() - t0) * 1000)
 
@@ -222,7 +256,7 @@ def build_app(mcp):
         """Self-serve key. Shown once, expires, tightly rate-limited. Needs KEY_SECRET on the server."""
         if not SECRET:
             return Guard._json(404, "NOT_FOUND", "self-serve keys are not enabled on this server")
-        ip = (request.client.host if request.client else "?")
+        ip = request.scope.get("client_ip", "?")
         if not signup_win.allow(f"su:{ip}", SIGNUP_PER_DAY, 86400):
             return Guard._json(429, "RATE_LIMIT", f"at most {SIGNUP_PER_DAY} keys per day per network", {"Retry-After": "3600"})
         key, exp = mint_key()

@@ -1,4 +1,4 @@
-import { CONTACT, OPERATOR } from "../lib/config";
+import { BRAND, CONTACT, OPERATOR } from "../lib/config";
 import { Page, Section } from "../components/ui";
 
 const UPDATED = "9 November 2026";
@@ -6,7 +6,7 @@ const contact = CONTACT ? <a href={`mailto:${CONTACT}`}>{CONTACT}</a> : <span>th
 
 export function Privacy() {
   return (
-    <Page title="Privacy policy" lead={`Last updated ${UPDATED}. This explains what ${OPERATOR} (“we”) processes when you use the site-to-mcp website and API. We collect as little as the service needs.`}>
+    <Page title="Privacy policy" lead={`Last updated ${UPDATED}. This explains what ${OPERATOR} (“we”) processes when you use the ${BRAND} website and API. We collect as little as the service needs.`}>
       <Section title="The short version">
         <ul>
           <li>The website has no cookies, no analytics and no advertising. Fonts are served from our own domain.</li>
@@ -22,7 +22,8 @@ export function Privacy() {
           <li><b>Access logs.</b> For each request: time, method, path, the name of the API key used, status code and duration. These contain no request bodies, arguments or keys.</li>
           <li><b>Network data.</b> Our hosting providers receive your IP address as part of delivering traffic and may log it. Our application uses IP addresses only to rate-limit public endpoints, in memory, and does not store them.</li>
           <li><b>API keys.</b> Keys made on the Setup page are signed, not stored: we keep no record of who created one, only a random id in the key itself. They expire after 30 days. Keys issued by the operator by hand are kept only as a SHA-256 hash and a label. To limit abuse, your IP address is counted in memory (key creation per day and request volume) and is forgotten on restart.</li>
-          <li><b>The Setup page.</b> The key you type stays in your browser's memory. It is not saved, and is sent only to the server address you entered, when you press Test connection.</li>
+          <li><b>The Setup page.</b> The key you type or generate stays in your browser's memory. It is not saved, and is sent only to the server address you entered, when you press Test connection.</li>
+          <li><b>The "check a site" box on the home page.</b> It creates a temporary generated key and keeps it in this tab's session storage (cleared when you close the tab) so repeat checks reuse it. The address you check is sent to our server and TinyFish.</li>
         </ul>
       </Section>
       <Section title="Why we process it (legal bases)">
@@ -56,7 +57,7 @@ export function Terms() {
   return (
     <Page title="Terms of use" lead={`Last updated ${UPDATED}. By using the service you agree to these terms with ${OPERATOR}.`}>
       <Section title="What the service does">
-        <p>site-to-mcp lets software read public web pages through TinyFish and returns structured data. It is provided as is, without warranty. Websites change, so a tool can stop working: it is built to fail with a clear error rather than return wrong data, but we cannot promise accuracy or availability.</p>
+        <p>{BRAND} lets software read public web pages through TinyFish and returns structured data. It is provided as is, without warranty. Websites change, so a tool can stop working: it is built to fail with a clear error rather than return wrong data, but we cannot promise accuracy or availability.</p>
       </Section>
       <Section title="Acceptable use">
         <ul>
