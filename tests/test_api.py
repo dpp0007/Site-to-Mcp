@@ -116,3 +116,13 @@ def test_generated_key_in_query_works_on_mcp_only(client, monkeypatch):
     assert client.post(f"/api/tools/list_python_events?key={key}", json={}).status_code == 401   # not on REST
     assert client.post(f"/mcp?key={KEY}", json={}).status_code == 401            # owner/static keys never accepted in a URL
     assert client.post("/mcp?key=s2m_u.1.x.y", json={}).status_code == 401       # forged
+
+
+def test_generated_key_in_path_works_and_never_logs_the_key(client, monkeypatch, caplog):
+    monkeypatch.setattr(api, "SECRET", b"test-secret")
+    key = api.mint_key()[0]
+    with caplog.at_level("INFO", logger="s2m"):
+        assert client.post(f"/mcp/{key}", json={}).status_code != 401
+        assert client.post("/mcp/s2m_u.1.x.y", json={}).status_code == 401
+        assert client.post(f"/api/tools/list_python_events/{key}", json={}).status_code in (401, 404)
+    assert key not in caplog.text and "auth=path" in caplog.text

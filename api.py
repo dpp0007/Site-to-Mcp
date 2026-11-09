@@ -105,8 +105,13 @@ class Guard:
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
+        m = re.fullmatch(r"/mcp/(s2m_u\.[A-Za-z0-9._-]+)/?", scope["path"])
+        if m:  # key in the URL path (clients that drop query strings): move it out of the path before anything logs it
+            scope = {**scope, "path": "/mcp", "raw_path": b"/mcp", "path_key": m.group(1)}
         req = Request(scope)
         path, ip = scope["path"], (scope.get("client") or ("?",))[0]
+        how = ("header" if req.headers.get("authorization") else "path" if scope.get("path_key")
+               else "query" if req.query_params.get("key") else "none")
         keyed = path.startswith("/mcp") or (path.startswith("/api/tools/") and req.method == "POST")
         t0, who = time.monotonic(), "anon"
         resp = None
@@ -141,7 +146,7 @@ class Guard:
             else:
                 await self.app(scope, receive, send_h)
         finally:  # log who/what/how long only: never bodies, arguments or keys
-            log.info("%s %s key=%s status=%s ms=%d", req.method, path, who, status, (time.monotonic() - t0) * 1000)
+            log.info("%s %s key=%s auth=%s status=%s ms=%d", req.method, re.sub(r"s2m_u\.[\w.-]+", "s2m_u.***", path), who, how, status, (time.monotonic() - t0) * 1000)
 
     def _who(self, req: Request) -> str | None:
         if not self.keys and not SECRET:  # ALLOW_ANON local dev
@@ -149,6 +154,8 @@ class Guard:
         auth = req.headers.get("authorization", "")
         if auth.lower().startswith("bearer "):
             tok = auth[7:].strip()
+        elif (pk := req.scope.get("path_key", "")).startswith("s2m_u."):
+            tok = pk
         elif req.url.path.startswith("/mcp") and (q := req.query_params.get("key", "")).startswith("s2m_u."):
             tok = q  # for clients that cannot send headers (ChatGPT's connector): generated keys only, /mcp only
         else:
