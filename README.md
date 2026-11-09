@@ -93,6 +93,8 @@ python health_check.py --json          # machine-readable, for CI / dashboards
 python health_check.py --canary        # OFFLINE: feeds every tool a "redesigned" site and proves each one fails loudly
 python -m pytest                       # offline tests: parsers, typing, error codes, cache, robots, probe, canary
 ```
+Evidence: [`demo/health_evidence.md`](demo/health_evidence.md) (green live run and canary output).
+
 [`.github/workflows/health.yml`](.github/workflows/health.yml) runs tests + the live check daily (add `TINYFISH_API_KEY` as a repo secret), so you hear about a site redesign before your agent does. Health args accept `today`, `today+7`.
 
 Reliability: results cached on disk (`.cache/`; agent tools 10 min, catalogue pages 1 day; `SITE_CACHE=0` disables), hard agent timeout, agent tools retry up to `AGENT_ATTEMPTS` (default 3) times on empty or malformed output, then fail loudly.
