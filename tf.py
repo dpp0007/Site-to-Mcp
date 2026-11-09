@@ -161,9 +161,9 @@ def agent_json(tool: str, url: str, goal: str, schema: dict) -> dict:
     return res
 
 
-def _fetch(urls: list[str], links: bool) -> dict[str, dict]:
+def _fetch(urls: list[str], links: bool, fmt: str = "markdown", head: bool = False) -> dict[str, dict]:
     try:
-        r = client().fetch.get_contents(urls, format="markdown", links=links)
+        r = client().fetch.get_contents(urls, format=fmt, links=links, **({"include_html_head": True} if head else {}))
     except AuthenticationError as e:
         raise ToolError("TinyFish API key invalid/missing (set TINYFISH_API_KEY)", "AUTH") from e
     except RateLimitError as e:
@@ -204,3 +204,18 @@ def fetch_many(urls: list[str], ttl: float = 86400, batch: int = 8) -> dict[str,
     if missing:
         raise SiteChangedError(f"{len(missing)} of {len(urls)} pages could not be read, e.g. {missing[0]}")
     return texts
+
+
+def fetch_html_many(urls: list[str], ttl: float = 600, batch: int = 8) -> dict[str, str]:
+    """HTML including the <head> (JSON-LD / Open Graph data many sites keep out of the visible text) for many URLs,
+    batched in parallel. Pages that cannot be read are simply absent: callers decide what that means."""
+    urls = list(dict.fromkeys(urls))
+    out = {u: v["text"] for u in urls if (v := _get(f"fetchhtml|{u}", ttl))}
+    todo = [u for u in urls if u not in out]
+    chunks = [todo[i:i + batch] for i in range(0, len(todo), batch)]
+    with ThreadPoolExecutor(max_workers=6) as ex:
+        for got in ex.map(lambda c: _fetch(c, False, "html", True), chunks):
+            for u, v in got.items():
+                out[u] = v["text"]
+                _put(f"fetchhtml|{u}", {"text": v["text"], "links": []})
+    return out

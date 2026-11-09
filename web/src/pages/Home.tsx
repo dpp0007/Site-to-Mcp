@@ -24,7 +24,7 @@ const FAQ = [
   ["Is it free?", "Getting a key is free and needs no sign-up. Keys last 30 days and have fair-use limits, so the hosted service stays available to everyone. You can self-host without limits."],
   ["Does it work with ChatGPT?", "Yes, in two ways: add it as a custom MCP connector (the key goes in the URL), or import the OpenAPI schema into a custom GPT Action. The Setup page has both."],
   ["What if a site doesn't allow bots?", "The access check says BLOCKED and every tool refuses to run on that URL. Wicket never works around a site's robots.txt."],
-  ["Why are some event times missing?", "Some pages draw dates with JavaScript, so a fast read sees names, hosts and venues but not times. The result says so, and you can ask for times (slower, uses a browser agent)."],
+  ["How fast is it?", "Pages Wicket can read with TinyFish Fetch (Luma, MIT, NYC Parks, python.org) come back in a few seconds with the same result every time. Pages that need a browser agent, such as park alerts, take 20 to 120 seconds."],
   ["What happens when a website changes?", "The tool fails with SITE_CHANGED and says what it expected. A daily health check runs against the real sites, so a breakage is caught before your agent hits it."],
   ["Where does my data go?", "Only the page address and your arguments are sent to TinyFish to read the public page. We keep no account, no analytics and no request bodies. See the privacy page."],
 ];
@@ -41,7 +41,7 @@ function Chat() {
       <div className="space-y-4 p-5 text-[15px] sm:p-6">
         <p className="ml-auto max-w-[85%] bg-band px-4 py-3">What's happening in Delhi this week? Check the site allows it first.</p>
         <p className="break-words font-mono text-[12.5px] text-mute">check_site_access(url=&quot;luma.com/delhi&quot;) → <span className="text-ink">ALLOWED</span></p>
-        <p className="break-words font-mono text-[12.5px] text-mute">list_events_from_page(url=&quot;luma.com/delhi&quot;, limit=3) → <span className="text-ink">3 events in seconds</span></p>
+        <p className="break-words font-mono text-[12.5px] text-mute">list_events_from_page(url=&quot;luma.com/delhi&quot;, limit=3) → <span className="text-ink">3 events with times, in seconds</span></p>
         <div className="overflow-x-auto border border-line">
           <table className="w-full text-left text-[14px]">
             <thead className="bg-band font-mono text-[11.5px] uppercase tracking-wide text-mute"><tr><th className="px-3 py-2 font-normal">Event</th><th className="px-3 py-2 font-normal">Where</th><th className="px-3 py-2 font-normal">Host</th></tr></thead>

@@ -1,6 +1,7 @@
 """Universal tools: paste ANY url, no spec needed.  Access is checked first (robots.txt, bot walls, terms), then
 TinyFish does the work.  Same loud-failure rules as the spec tools."""
 import ipaddress
+import json
 import re
 from urllib.parse import urlsplit
 
@@ -99,9 +100,28 @@ def _luma_cards(md: str) -> list[dict]:
     return cards
 
 
+def _json_ld_event(html: str) -> dict | None:
+    """The schema.org Event object in a page's <script type="application/ld+json"> blocks, if any."""
+    for m in re.finditer(r'<script type="application/ld\+json">(.*?)</script>', html, re.S):
+        try:
+            d = json.loads(m.group(1))
+        except ValueError:
+            continue
+        for x in (d if isinstance(d, list) else [d]):
+            if isinstance(x, dict) and "Event" in str(x.get("@type")) and x.get("name"):
+                return x
+    return None
+
+
+def _iso(v: str | None) -> str | None:
+    """'2026-11-10T07:00:00.000-05:00' -> '2026-11-10T07:00:00-05:00' (ISO 8601 with the event's own UTC offset)."""
+    return re.sub(r"\.\d+(?=(Z|[+-]\d\d:\d\d)$)", "", v) if v else None
+
+
 def _luma_events(url: str, limit: int) -> PageEvents:
-    """Fast, repeatable path for Luma pages: TinyFish Fetch only (no browser agent). Every event link is checked
-    against the title on that event's own page, so a name is never paired with the wrong URL."""
+    """Fast, repeatable path for Luma pages, TinyFish Fetch only (no browser agent): the city page gives names, hosts
+    and venues; each event's own page carries schema.org JSON-LD with exact start/end times. Every link is matched by
+    the event's title, so a name is never paired with the wrong URL or time."""
     page = tf.fetch_page(url, TTL, links=True)
     cards = _luma_cards(page["text"])[:limit]
     own = urlsplit(url).path.strip("/").lower()
@@ -114,21 +134,25 @@ def _luma_events(url: str, limit: int) -> PageEvents:
             cands.append(ln)
     if not cards or not cands:
         raise SiteChangedError(f"list_events_from_page: no event cards/links found at {url}; the page layout may have changed")
-    titles = {}
-    for link, text in tf.fetch_many(cands[:limit + 8], TTL).items():
-        m = re.search(r"^# (.+)$", text, re.M)
-        if m:
-            titles[_norm(m.group(1))] = link
-    events = []
+    by_title = {}
+    for link, html in tf.fetch_html_many(cands[:limit + 8], TTL).items():
+        ev = _json_ld_event(html)
+        og = re.search(r'<meta content="([^"]+?)(?: [··�|] Luma)?" property="og:title"', html)
+        title = (ev or {}).get("name") or (og.group(1) if og else None)
+        if title:
+            by_title[_norm(title)] = (link, ev or {})
+    events, undated = [], 0
     for c in cards:
-        link = titles.get(_norm(c["name"]))
-        if not link:
+        hit = by_title.get(_norm(c["name"]))
+        if not hit:
             raise SiteChangedError(f"list_events_from_page: could not match {c['name']!r} to an event page at {url}")
-        events.append(PageEvent(name=c["name"], location=c["location"], url=link,
+        link, ev = hit
+        start, end = _iso(ev.get("startDate")), _iso(ev.get("endDate"))
+        undated += start is None
+        events.append(PageEvent(name=c["name"], start=start, end=end, location=c["location"], url=link,
                                 host=(c["host"] or "").removeprefix("By ") or None))
-    return PageEvents(source_url=url, source="fetch", events=events, warnings=[
-        "start/end times are drawn by the page's JavaScript and were not read; call again with with_dates=true "
-        "to read them with the browser agent (slower, may need a retry)"])
+    warn = [f"{undated} of {len(events)} events had no start time on their page"] if undated else []
+    return PageEvents(source_url=url, source="fetch", events=events, warnings=warn)
 
 
 def check_site_access(url: str) -> SiteAccess:
@@ -141,12 +165,13 @@ def check_site_access(url: str) -> SiteAccess:
 
 def list_events_from_page(url: str, limit: int = 20, with_dates: bool = False) -> PageEvents:
     """Events listed on ANY event-listing page, e.g. a Luma city page (https://luma.com/nyc), a meetup/venue calendar.
-    Checks robots.txt first (BLOCKED if disallowed). Returns typed events, never page text. Luma pages use a fast,
-    repeatable Fetch path (names, hosts, venues, links; no times); set with_dates=true to read start/end times with
-    the slower browser agent. Other sites always use the agent."""
+    Checks robots.txt first (BLOCKED if disallowed). Returns typed events, never page text. Luma pages are read with
+    TinyFish Fetch only (fast, repeatable): name, start/end time with UTC offset, venue, host and link. Other sites use
+    the browser agent (slower). `with_dates` is kept for older clients and has no effect: times are always included
+    where the page provides them."""
     url = _check_url(url)
     limit = max(1, min(int(limit), 100))
-    if urlsplit(url).hostname in LUMA_HOSTS and not with_dates:
+    if urlsplit(url).hostname in LUMA_HOSTS:
         robots.require(url)
         return tf.with_retries(lambda: _luma_events(url, limit))
     goal = (f"This page lists events. They load after the page opens: wait until event cards are visible (do not answer before that, and never answer with an empty list unless the page clearly shows no events), then scroll down to load more and collect up to {limit} events that are actually shown. "

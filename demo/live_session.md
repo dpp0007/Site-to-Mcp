@@ -41,7 +41,8 @@ failed with `[SITE_CHANGED] no events found` (the agent run completed but return
 succeeded only some of the time even with retries. The tool failed loudly each time rather than returning empty or
 invented data. Retrying more did not fix it, so the design changed:
 
-- **Default for Luma pages is TinyFish Fetch only**: names, hosts, venues and links in about 8 seconds, identical on every
-  run. Every link is verified against the title on that event's own page, so a name is never paired with the wrong URL.
-- Start/end times are drawn by the page's JavaScript and are not in what Fetch returns. The result says so in `warnings`
-  and in `source: "fetch"`. Pass `with_dates=true` to read times with the browser agent (slower, may need a retry).
+- **Luma pages are now read with TinyFish Fetch only**: the city page gives names, hosts, venues and links, and each
+  event's own page carries schema.org JSON-LD (via Fetch's `include_html_head`) with the exact start and end time and
+  UTC offset. A result takes a few seconds and is identical on every run. Each link is matched to its event by title, so
+  a name is never paired with the wrong URL or time, and a page that cannot be matched fails with `SITE_CHANGED`.
+- The browser agent is still used for sites that have no such structure.

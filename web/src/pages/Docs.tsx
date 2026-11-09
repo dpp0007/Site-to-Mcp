@@ -38,7 +38,7 @@ const ENV = [
 const FAQ = [
   ["Why does the first call take so long?", "Free hosting sleeps after about 15 minutes idle, so the first request can take 30 to 60 seconds. Browser-agent tools also take 20 to 120 seconds on a real page."],
   ["Can I use it from ChatGPT?", "Yes. Add a custom MCP connector with the key in the URL (Authentication: No authentication), or import /api/openapi.json into a custom GPT Action with the key as a Bearer token."],
-  ["Where do event times go?", "Fast reads of Luma pages return names, hosts, venues and links, but not times, because the page draws them with JavaScript. Pass with_dates=true to read them with the browser agent."],
+  ["Why are event times missing for some sites?", "Luma pages return exact start and end times (with the UTC offset) from the event pages themselves. For other sites the browser agent reads whatever times the page shows; if a page shows none, the field is empty."],
   ["Can it read pages behind a login?", "No. Only public pages. Wicket does not log in, solve captchas or fill payment forms."],
   ["Is the access check legal advice?", "No. It reads robots.txt, looks for bot walls and scans the terms for automation wording. It is advisory: you decide."],
 ];
@@ -139,7 +139,7 @@ export default function Docs() {
             <h3>The access check</h3>
             <p><code>check_site_access(url)</code> returns <code>ALLOWED</code>, <code>CAUTION</code> or <code>BLOCKED</code> with notes: whether robots.txt allows the URL, whether the page is reachable, whether it looks like a bot wall or login wall, and whether the terms mention restrictions on automation. It is advisory, not legal advice. Every other tool also enforces robots.txt on the exact URL, so a disallowed page returns <code>BLOCKED</code> and nothing is fetched.</p>
             <h3>Fetch and the browser agent</h3>
-            <p><b>Fetch</b> reads a page's text and links quickly and repeatably. <b>The browser agent</b> opens the page like a person, scrolls and clicks, and returns what you asked for. Dedicated tools use Fetch where the data is in the page. Universal tools (<code>list_events_from_page</code>, <code>extract_from_page</code>) use the agent for arbitrary sites, and Fetch for Luma pages.</p>
+            <p><b>Fetch</b> reads a page's text and links quickly and repeatably. <b>The browser agent</b> opens the page like a person, scrolls and clicks, and returns what you asked for. Dedicated tools use Fetch where the data is in the page. Universal tools (<code>list_events_from_page</code>, <code>extract_from_page</code>) use the agent for arbitrary sites. Luma pages are read with Fetch only: the city page gives names, hosts and venues, and each event's own page supplies its exact times.</p>
             <h3>Typed results</h3>
             <p>Each tool validates its output against a schema before returning it. If the shape is wrong or a list that should not be empty is empty, you get <code>SITE_CHANGED</code> instead of half an answer.</p>
           </Sec>
@@ -147,8 +147,8 @@ export default function Docs() {
           <Sec id="recipes" title="Examples">
             <h3>Events in a city</h3>
             <p>Ask: “What's on in Bengaluru? Check the site first.” The agent runs two tools:</p>
-            <CodeBlock label="tool calls" code={`check_site_access(url="https://luma.com/bengaluru")\n  -> {"verdict":"ALLOWED","robots_allowed":true,...}\nlist_events_from_page(url="https://luma.com/bengaluru", limit=10)\n  -> {"source":"fetch","events":[{"name":"...","host":"...","location":"Indiranagar","url":"https://luma.com/..."}],\n      "warnings":["start/end times ... pass with_dates=true"]}`} />
-            <p>Times are <code>null</code> on the fast path. Call again with <code>with_dates=true</code> to read them with the browser agent (slower, may need a retry).</p>
+            <CodeBlock label="tool calls" code={`check_site_access(url="https://luma.com/bengaluru")\n  -> {"verdict":"ALLOWED","robots_allowed":true,...}\nlist_events_from_page(url="https://luma.com/bengaluru", limit=10)\n  -> {"source":"fetch","events":[{"name":"...","start":"2026-11-10T18:00:00+05:30","end":"2026-11-10T21:00:00+05:30",\n      "location":"Indiranagar","host":"...","url":"https://luma.com/..."}],"warnings":[]}`} />
+            <p>Times are ISO 8601 with the event's own UTC offset. If an event page shows no time, that event's <code>start</code> is empty and <code>warnings</code> says how many.</p>
             <h3>An MIT course and its prerequisites</h3>
             <CodeBlock label="tool calls" code={`mit_search_courses(query="machine learning", limit=3)\n  -> 6.7900 Machine Learning, ...\nmit_get_course(code="6.7900")\n  -> {"prerequisites":"18.06 and (6.3700, 6.3800, or 18.600)",\n      "prerequisite_codes":["18.06","6.3700","6.3800","18.600"],\n      "instructors":["C. Daskalakis","T. Jaakkola"],"terms":["Fall"]}`} />
             <h3>Free things to do in a borough</h3>
@@ -212,7 +212,7 @@ export default function Docs() {
           <Sec id="reliability" title="Reliability">
             <ul>
               <li><b>Cold starts.</b> On free hosting the first call after idle can take 30 to 60 seconds.</li>
-              <li><b>Browser-agent tools</b> take 20 to 120 seconds and their output varies. They retry up to three times (within a time budget), then fail with <code>SITE_CHANGED</code>. Fetch-based tools are fast and repeatable.</li>
+              <li><b>Fetch-based tools</b> (MIT, Python events, NYC Parks and Luma pages) take a few seconds and give the same result every time. <b>Browser-agent tools</b> (other sites, park conditions) take 20 to 120 seconds and their output varies: they retry within a time budget, then fail with <code>SITE_CHANGED</code> or <code>TIMEOUT</code>.</li>
               <li><b>Results are cached</b> briefly (10 minutes for agent tools, up to a day for catalogue pages).</li>
               <li><b>Health check.</b> A scheduled job calls every dedicated tool against the real site and fails if one breaks. A built-in canary feeds each tool a redesigned page and proves it fails loudly.</li>
             </ul>

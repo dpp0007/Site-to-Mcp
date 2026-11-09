@@ -76,13 +76,7 @@ check("MCP without key is rejected", s == 401, str(s))
 t = time.time()
 s, b, _ = req("/api/tools/list_events_from_page", {"url": "https://luma.com/nyc", "limit": 5})
 d = json.loads(b) if s == 200 else {}
-check("events from luma.com/nyc (Fetch path, fast)", s == 200 and len(d.get("events", [])) == 5 and d.get("source") == "fetch",
+check("events from luma.com/nyc (Fetch only, with times)", s == 200 and len(d.get("events", [])) == 5 and d.get("source") == "fetch" and all(e.get("start") for e in d["events"]),
       f"{len(d.get('events', []))} events in {time.time() - t:.0f}s" if s == 200 else b[:150])
-if os.environ.get("SMOKE_AGENT", "0") == "1":  # real TinyFish browser agent reading times: slow (30-240 s), flaky, uses credits
-    t = time.time()
-    s, b, _ = req("/api/tools/list_events_from_page", {"url": "https://luma.com/nyc", "limit": 3, "with_dates": True})
-    ev = json.loads(b).get("events", []) if s == 200 else []
-    check("agent: event times from luma.com/nyc (with_dates)", s == 200 and any(e.get("start") for e in ev),
-          f"{len(ev)} events in {time.time() - t:.0f}s" if s == 200 else b[:150])
 print("\nALL PASSED" if not bad else f"\n{bad} FAILED")
 sys.exit(1 if bad else 0)

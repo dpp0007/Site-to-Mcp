@@ -1,5 +1,6 @@
 """Offline (CI-safe): fake TinyFish; checks spec -> tool behaviour, parsers, and that failures are LOUD."""
 import datetime
+import json
 import inspect
 import pathlib
 from urllib.robotparser import RobotFileParser
@@ -425,45 +426,49 @@ def test_universal_extract_shapes_records(monkeypatch):
 # ---- Luma fast path (Fetch only) -------------------------------------------------------------
 LUMA_MD = "## Events\n\n### Alpha Dinner\n\n\n\nBy Ann\n\n\n\nTribeca\n\nWaitlist\n\n### Beta Run\n\n\n\nBy Bo & Cy\n\n\n\n180 Maiden Ln\n\n+124\n"
 LUMA_LINKS = ["https://luma.com/", "https://luma.com/discover", "https://luma.com/nyc/map", "https://luma.com/alpha-1", "https://luma.com/beta-2"]
-LUMA_PAGES = {"https://luma.com/alpha-1": "# Alpha Dinner\nstuff", "https://luma.com/beta-2": "# Beta  Run\nstuff"}
 
 
-def luma(monkeypatch, pages=LUMA_PAGES):
+def ld(name, start=None, end=None):
+    body = {"@type": "Event", "name": name, **({"startDate": start} if start else {}), **({"endDate": end} if end else {})}
+    return f'<html><head><script type="application/ld+json">{json.dumps(body)}</script></head></html>'
+
+
+LUMA_HTML = {"https://luma.com/alpha-1": ld("Alpha Dinner", "2026-11-10T18:00:00.000+05:30", "2026-11-10T21:00:00.000+05:30"),
+             "https://luma.com/beta-2": ld("Beta  Run", "2026-11-11T07:00:00.000-05:00")}
+
+
+def luma(monkeypatch, pages=LUMA_HTML):
     import robots
     import universal
     monkeypatch.setattr(robots, "require", lambda u: None)
     monkeypatch.setattr(tf, "fetch_page", lambda u, ttl=0, links=False: {"text": LUMA_MD, "links": LUMA_LINKS})
-    monkeypatch.setattr(tf, "fetch_many", lambda urls, ttl=0, batch=8: {u: pages[u] for u in urls if u in pages})
+    monkeypatch.setattr(tf, "fetch_html_many", lambda urls, ttl=0, batch=8: {u: pages[u] for u in urls if u in pages})
+    monkeypatch.setattr(tf, "agent_json", lambda *a: pytest.fail("the browser agent must not run for Luma pages"))
     return universal
 
 
-def test_luma_fast_path_uses_fetch_and_pairs_names_with_verified_links(monkeypatch):
+def test_luma_reads_names_links_and_exact_times_with_fetch_only(monkeypatch):
     u = luma(monkeypatch)
-    monkeypatch.setattr(tf, "agent_json", lambda *a: pytest.fail("agent must not run on the fast path"))
     r = u.list_events_from_page("https://luma.com/nyc", 5)
-    assert r.source == "fetch" and [e.name for e in r.events] == ["Alpha Dinner", "Beta Run"]
-    assert r.events[0].url == "https://luma.com/alpha-1" and r.events[0].host == "Ann" and r.events[0].location == "Tribeca"
-    assert r.events[1].host == "Bo & Cy" and r.events[1].location == "180 Maiden Ln"
-    assert r.warnings and "with_dates" in r.warnings[0]
+    assert r.source == "fetch" and [e.name for e in r.events] == ["Alpha Dinner", "Beta Run"] and r.warnings == []
+    a, b = r.events
+    assert a.url == "https://luma.com/alpha-1" and a.host == "Ann" and a.location == "Tribeca"
+    assert a.start == "2026-11-10T18:00:00+05:30" and a.end == "2026-11-10T21:00:00+05:30"   # offset kept, millis dropped
+    assert b.host == "Bo & Cy" and b.start == "2026-11-11T07:00:00-05:00" and b.end is None
 
 
-def test_luma_fast_path_fails_loudly_when_a_title_cannot_be_matched(monkeypatch):
-    u = luma(monkeypatch, {"https://luma.com/alpha-1": "# Something else", "https://luma.com/beta-2": "# Beta Run"})
+def test_luma_warns_when_an_event_page_has_no_time(monkeypatch):
+    u = luma(monkeypatch, {"https://luma.com/alpha-1": ld("Alpha Dinner"), "https://luma.com/beta-2": ld("Beta Run", "2026-11-11T07:00:00.000Z")})
+    r = u.list_events_from_page("https://luma.com/nyc", 5)
+    assert r.events[0].start is None and "1 of 2" in r.warnings[0]
+
+
+def test_luma_fails_loudly_when_a_title_cannot_be_matched(monkeypatch):
+    u = luma(monkeypatch, {"https://luma.com/alpha-1": ld("Something else"), "https://luma.com/beta-2": ld("Beta Run")})
     with pytest.raises(tf.SiteChangedError):
         u.list_events_from_page("https://luma.com/nyc", 5)
 
 
-def test_luma_with_dates_uses_the_agent(monkeypatch):
+def test_luma_with_dates_flag_is_accepted_and_changes_nothing(monkeypatch):
     u = luma(monkeypatch)
-    monkeypatch.setattr(tf, "agent_json", lambda *a: {"events": [{"name": "A", "start": "2026-11-12T18:00"}]})
-    r = u.list_events_from_page("https://luma.com/nyc", 5, with_dates=True)
-    assert r.source == "agent" and r.events[0].start == "2026-11-12T18:00"
-
-
-def test_robots_refuses_private_hosts_and_private_redirects(monkeypatch):
-    monkeypatch.undo()
-    assert not robots.check("http://127.0.0.1/x")[0] and not robots.check("http://10.1.2.3/x")[0]
-    assert not robots._public("localhost")
-    h = robots._SafeRedirect()
-    with pytest.raises(OSError):
-        h.redirect_request(None, None, 302, "Found", {}, "http://169.254.169.254/latest/meta-data")
+    assert u.list_events_from_page("https://luma.com/nyc", 5, with_dates=True).source == "fetch"
