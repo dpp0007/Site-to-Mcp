@@ -87,7 +87,7 @@ def list_events_from_page(url: str, limit: int = 20) -> PageEvents:
     Checks robots.txt first (BLOCKED if disallowed). Returns typed events, never page text."""
     url = _check_url(url)
     limit = max(1, min(int(limit), 100))
-    goal = (f"This page lists events. Scroll down to load them and collect up to {limit} events that are actually shown. "
+    goal = (f"This page lists events. They load after the page opens: wait until event cards are visible (do not answer before that, and never answer with an empty list unless the page clearly shows no events), then scroll down to load more and collect up to {limit} events that are actually shown. "
             "For each give: name; start (ISO 8601 like 2026-11-14T18:30 if a date/time is shown, otherwise exactly as "
             "displayed); end (a DATE/TIME only; null unless an explicit end time is shown, cards usually show none); "
             "location (the venue or neighbourhood/city text on the card, 'Online' if virtual, null if not shown; this is "
