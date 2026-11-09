@@ -107,3 +107,12 @@ def test_signup_is_limited_per_ip(client, monkeypatch):
     monkeypatch.setattr(api, "SECRET", b"test-secret")
     codes = [client.post("/api/keys").status_code for _ in range(api.SIGNUP_PER_DAY + 1)]
     assert codes[-1] == 429
+
+
+def test_generated_key_in_query_works_on_mcp_only(client, monkeypatch):
+    monkeypatch.setattr(api, "SECRET", b"test-secret")
+    key = client.post("/api/keys").json().get("key") or api.mint_key()[0]
+    assert client.post(f"/mcp?key={key}", json={}).status_code != 401            # accepted (body then fails MCP validation)
+    assert client.post(f"/api/tools/list_python_events?key={key}", json={}).status_code == 401   # not on REST
+    assert client.post(f"/mcp?key={KEY}", json={}).status_code == 401            # owner/static keys never accepted in a URL
+    assert client.post("/mcp?key=s2m_u.1.x.y", json={}).status_code == 401       # forged

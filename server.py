@@ -59,8 +59,8 @@ def main() -> None:
 
     from api import build_app
     host, port = os.environ.get("HOST", "0.0.0.0"), int(os.environ.get("PORT", "8000"))
-    uvicorn.run(build_app(mcp), host=host, port=port, log_level="info", proxy_headers=True,
-                forwarded_allow_ips="*", server_header=False)  # behind Render's proxy: trust X-Forwarded-For
+    uvicorn.run(build_app(mcp), host=host, port=port, log_level="info", access_log=False, proxy_headers=True,
+                forwarded_allow_ips="*", server_header=False)  # access_log off: ?key= must never reach logs; Guard logs path only. Behind Render's proxy: trust X-Forwarded-For
 
 
 if __name__ == "__main__":

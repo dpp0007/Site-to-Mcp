@@ -112,7 +112,9 @@ export default function Setup() {
           {tab === "Any MCP client" && <>{pick("Any MCP client")}<p>Any client that speaks MCP over Streamable HTTP can connect with a Bearer header.</p></>}
           {tab === "ChatGPT" && (
             <>
-              <p>ChatGPT calls tools through a custom GPT Action. Create a GPT, add an Action, choose <b>Import from URL</b> and paste:</p>
+              <p><b>Option A: custom MCP connector.</b> ChatGPT's connector cannot send a header, so the key goes in the URL. Use a key from the Generate button above (it expires in 30 days). In ChatGPT, add a custom MCP server, set <b>Authentication</b> to <b>No authentication</b>, and use this URL. Treat the URL like a password.</p>
+              <CodeBlock code={`${base}/mcp?key=${key.trim().startsWith("s2m_u.") ? key.trim() : "YOUR_GENERATED_KEY"}`} shown={`${base}/mcp?key=${key.trim().startsWith("s2m_u.") ? (hide ? "s2m_u.••••••••" : key.trim()) : "YOUR_GENERATED_KEY"}`} label="Connector URL" />
+              <p><b>Option B: custom GPT Action</b> (keeps the key out of the URL). Create a GPT, add an Action, choose <b>Import from URL</b> and paste:</p>
               <CodeBlock code={`${base}/api/openapi.json`} label="Schema URL" />
               <p>Set authentication to <b>API Key</b>, auth type <b>Bearer</b>, and paste your key. Actions time out after roughly a minute, so prefer the fast tools (everything except <code>get_park_conditions</code> and <code>list_events_from_page</code> on slow pages).</p>
             </>

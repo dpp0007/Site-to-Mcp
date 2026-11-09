@@ -147,11 +147,15 @@ class Guard:
         if not self.keys and not SECRET:  # ALLOW_ANON local dev
             return "dev"
         auth = req.headers.get("authorization", "")
-        if not auth.lower().startswith("bearer "):
+        if auth.lower().startswith("bearer "):
+            tok = auth[7:].strip()
+        elif req.url.path.startswith("/mcp") and (q := req.query_params.get("key", "")).startswith("s2m_u."):
+            tok = q  # for clients that cannot send headers (ChatGPT's connector): generated keys only, /mcp only
+        else:
             return None
-        if auth[7:].strip().startswith("s2m_u."):
-            return verify_key(auth[7:].strip())
-        digest = hashlib.sha256(auth[7:].strip().encode()).hexdigest()
+        if tok.startswith("s2m_u."):
+            return verify_key(tok)
+        digest = hashlib.sha256(tok.encode()).hexdigest()
         for h, name in self.keys.items():  # constant-time compare against every stored hash
             if hmac.compare_digest(h, digest):
                 return name
