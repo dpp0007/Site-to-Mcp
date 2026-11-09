@@ -1,0 +1,21 @@
+site: nps-park-conditions   # nps.gov park pages - alerts are JavaScript-loaded, so TinyFish Agent reads them
+tools:
+  - name: get_park_conditions
+    description: "Current alerts and road/area closures for a US National Park, by 4-letter park code (yose, grca, yell, zion, romo...). NOT_FOUND for an unknown code."
+    inputs:
+      park: {type: string, pattern: "[A-Za-z]{4}"}
+    url: https://www.nps.gov/{park|lower}/planyourvisit/conditions.htm
+    mode: agent
+    precheck: true          # free Fetch first: unknown park code -> NOT_FOUND without spending an agent run
+    cache_ttl: 600
+    nonempty: [park_name]
+    goal: "Read the Current Conditions page. Return park_name (the national park's own full name as in the page title, e.g. 'Yosemite National Park', never a sub-area, plain text without symbols), alerts (title, detail), and closures (name of road/trail/area, status). Empty lists if none are listed. If the page says it cannot be found, return found=false."
+    found_field: found
+    allow_empty: true
+    output:
+      park_name: string
+      alerts: [{title: string, detail: "string?"}]
+      closures: [{name: string, status: string}]
+    health:
+      args: {park: yose}
+      expect: ["park_name~yosemite"]

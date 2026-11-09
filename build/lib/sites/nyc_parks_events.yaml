@@ -1,0 +1,70 @@
+site: nyc-parks-events   # nycgovparks.org/events - city events calendar, no API. TinyFish Fetch + deterministic parsing.
+tools:
+  - name: list_nyc_parks_event_categories
+    description: "Valid category slugs for list_nyc_parks_events (kids, fitness, birding, concerts, ...). Call this first if unsure which category to pass."
+    url: https://www.nycgovparks.org/events
+    mode: code
+    handler: nyc_parsers:categories
+    output:
+      categories: [{slug: string, name: string}]
+    health:
+      expect: ["categories>=10", "categories.slug~kids"]
+
+  - name: list_nyc_parks_events
+    description: "NYC Parks events on one date (YYYY-MM-DD), optionally filtered by category slug and/or borough (Manhattan, Brooklyn, Queens, Bronx, Staten Island). 50 per page; use `page` for more. Each event has a url for get_nyc_parks_event."
+    inputs:
+      date: date
+      category: {type: string, default: ""}
+      borough: {type: string, default: ""}
+      page: {type: integer, default: 1}
+      limit: {type: integer, default: 20}
+    url: https://www.nycgovparks.org/events/f{date}/t{date}
+    mode: code
+    handler: nyc_parsers:list_events
+    allow_empty: true
+    output:
+      date: date
+      category: "string?"
+      page: integer
+      total_on_date: integer
+      events:
+        - name: string
+          date: date
+          start_time: "string?"
+          end_time: "string?"
+          venue: string
+          park: "string?"
+          borough: "string?"
+          description: string
+          categories: [string]
+          free: boolean
+          url: "string?"
+    health:
+      args: {date: "today+7", limit: 5}
+      expect: ["events>=1", "total_on_date>=1", "events.url~nycgovparks"]
+
+  - name: get_nyc_parks_event
+    description: "Full detail for one NYC Parks event from its url (as returned by list_nyc_parks_events): address, cost, organizer, contact. NOT_FOUND if the page does not exist."
+    inputs:
+      event_url: {type: string, pattern: 'https://www\.nycgovparks\.org/events/\d{4}/\d\d/\d\d/[\w-]+'}
+    url: "{event_url|raw}"
+    mode: code
+    handler: nyc_parsers:get_event
+    output:
+      name: string
+      date: date
+      start_time: "string?"
+      end_time: "string?"
+      description: string
+      venue: "string?"
+      borough: "string?"
+      address: "string?"
+      cost: "string?"
+      organizer: "string?"
+      contact_phone: "string?"
+      contact_email: "string?"
+      categories: [string]
+    allow_empty: true
+    health:
+      args_from: {tool: list_nyc_parks_events, args: {date: "today+7", limit: 10}, pick: "events.*.url", as: event_url, example: "https://www.nycgovparks.org/events/2026/11/08/fall-birding"}
+      expect: ["name~", "date~20"]

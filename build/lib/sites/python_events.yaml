@@ -1,0 +1,13 @@
+site: python-org-events   # python.org events calendar - RSS only, no JSON API. Fetch + parser (sub-second).
+tools:
+  - name: list_python_events
+    description: "Upcoming Python community conferences and meetups worldwide (name, ISO start/end dates, location), soonest first."
+    inputs:
+      limit: {type: integer, default: 10}
+    url: https://www.python.org/events/python-events/
+    mode: fetch
+    parser: mit_parsers:python_events
+    output:
+      events: [{name: string, start_date: date, end_date: "date?", location: string}]
+    health:
+      expect: ["events>=3", "events.name~py"]
