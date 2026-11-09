@@ -324,6 +324,32 @@ def test_health_does_not_retry_non_rate_limit(monkeypatch):
     assert not out["ok"] and out["code"] == "AUTH" and len(calls) == 1
 
 
+def test_health_retries_site_changed(monkeypatch):
+    monkeypatch.setattr(health_check.time, "sleep", lambda *_: None)
+    checks = []
+
+    def flaky_check(*_):
+        checks.append(1)
+        if len(checks) == 1:
+            raise tf.SiteChangedError("expected park_name to contain 'yosemite'")
+
+    monkeypatch.setattr(health_check, "check", flaky_check)
+
+    class _Result:
+        def model_dump(self, mode="json"):
+            return {"ok": True}
+
+    class _Tool:
+        name = "dummy"
+        health = {"args": {}}
+
+        def run(self, **kwargs):
+            return _Result()
+
+    out = health_check.check_tool(_Tool(), {"dummy": _Tool()})
+    assert out["ok"] and len(checks) == 2
+
+
 # ---- the canary: every tool must fail loudly on a redesigned site -----------------------------
 def test_canary_every_tool_fails_loudly():
     res = health_check.canary(list(TOOLS.values()))
