@@ -24,7 +24,7 @@ PER_MINUTE = int(os.environ.get("RATE_PER_MINUTE", "30"))     # per key
 PER_DAY = int(os.environ.get("RATE_PER_DAY", "300"))          # per key: caps TinyFish spend
 PUBLIC_PER_MINUTE = int(os.environ.get("PUBLIC_PER_MINUTE", "60"))  # per IP on public endpoints
 STATUS = {"BAD_INPUT": 400, "NOT_FOUND": 404, "BLOCKED": 403, "RATE_LIMIT": 429, "TIMEOUT": 504,
-          "SITE_CHANGED": 502, "AUTH": 502}
+          "SITE_CHANGED": 502, "AUTH": 502, "UPSTREAM_ERROR": 502, "TOOL_ERROR": 500}
 HEADERS = {
     "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
     "Cache-Control": "no-store", "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
@@ -227,7 +227,7 @@ def build_app(mcp):
         except Exception as e:  # tool errors carry a leading [CODE]
             m = re.search(r"\[([A-Z_]+)\]\s*(.*)", str(e), re.S)
             code, msg = (m.group(1), m.group(2)) if m else ("TOOL_ERROR", str(e))
-            return Guard._json(STATUS.get(code, 400 if code == "TOOL_ERROR" else 500), code, msg[:500])
+            return Guard._json(STATUS.get(code, 500), code, msg[:500])
         structured = res[1] if isinstance(res, tuple) else res if isinstance(res, dict) else None
         if structured is None:
             text = "".join(getattr(c, "text", "") for c in (res[0] if isinstance(res, tuple) else res))

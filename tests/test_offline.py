@@ -472,3 +472,52 @@ def test_luma_fails_loudly_when_a_title_cannot_be_matched(monkeypatch):
 def test_luma_with_dates_flag_is_accepted_and_changes_nothing(monkeypatch):
     u = luma(monkeypatch)
     assert u.list_events_from_page("https://luma.com/nyc", 5, with_dates=True).source == "fetch"
+
+
+# ---- error contract: every failure starts with [CODE] -----------------------------------------
+def _mcp_call(name, args):
+    import anyio
+    import server
+    try:
+        anyio.run(server.mcp.call_tool, name, args)
+    except Exception as e:  # noqa: BLE001
+        return str(e)
+    return None
+
+
+def test_bad_date_is_bad_input_not_pydantic_text():
+    msg = _mcp_call("list_nyc_parks_events", {"date": "not-a-date"})
+    assert msg.startswith("[BAD_INPUT] list_nyc_parks_events: date")
+    assert "YYYY-MM-DD" in msg and "pydantic" not in msg and "validation error" not in msg
+
+
+def test_missing_and_wrong_type_arguments_are_bad_input():
+    assert _mcp_call("mit_get_course", {}).startswith("[BAD_INPUT] mit_get_course: code is required")
+    msg = _mcp_call("list_python_events", {"limit": "many"})
+    assert msg.startswith("[BAD_INPUT]") and "whole number" in msg
+
+
+def test_tool_errors_keep_their_code_first(monkeypatch):
+    monkeypatch.setattr(tf, "fetch_text", lambda *a, **k: (_ for _ in ()).throw(tf.NotFoundError("page not found: x")))
+    msg = _mcp_call("mit_get_course", {"code": "6.1220"})
+    assert msg.startswith("[NOT_FOUND]") and "Error executing tool" not in msg
+
+
+def test_unexpected_exception_is_tool_error_without_leaking_detail(monkeypatch):
+    def boom(*a, **k):
+        raise KeyError("secret-internal-detail")
+    monkeypatch.setattr(tf, "fetch_text", boom)
+    msg = _mcp_call("mit_get_course", {"code": "6.1220"})
+    assert msg.startswith("[TOOL_ERROR] mit_get_course") and "secret-internal-detail" not in msg
+
+
+def test_upstream_sdk_errors_are_coded(monkeypatch):
+    from tinyfish._utils.exceptions import APIConnectionError
+    class Boom:
+        class fetch:
+            @staticmethod
+            def get_contents(*a, **k):
+                raise APIConnectionError("net down")
+    monkeypatch.setattr(tf, "client", lambda: Boom)
+    with pytest.raises(tf.ToolError, match=r"\[UPSTREAM_ERROR\]"):
+        tf._fetch(["https://x.test"], False)

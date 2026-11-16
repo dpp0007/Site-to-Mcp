@@ -12,7 +12,7 @@ from pathlib import Path
 import httpx
 from tinyfish import TinyFish
 from tinyfish import APITimeoutError, RequestTimeoutError
-from tinyfish._utils.exceptions import AuthenticationError, RateLimitError
+from tinyfish._utils.exceptions import AuthenticationError, RateLimitError, SDKError
 
 AGENT_TIMEOUT = float(os.environ.get("AGENT_TIMEOUT", "240"))  # seconds, hard cap per agent run
 CACHE_DIR = Path(os.environ.get("SITE_CACHE_DIR", Path(__file__).parent / ".cache"))
@@ -145,6 +145,8 @@ def agent_json(tool: str, url: str, goal: str, schema: dict) -> dict:
         raise ToolError("TinyFish rate limit hit; retry shortly", "RATE_LIMIT") from e
     except (APITimeoutError, RequestTimeoutError) as e:
         raise ToolError(f"TinyFish agent timed out on {url}", "TIMEOUT") from e
+    except SDKError as e:
+        raise ToolError(f"TinyFish could not complete the request ({type(e).__name__}); retry shortly", "UPSTREAM_ERROR") from e
     if os.environ.get("DEBUG_AGENT") == "1":  # off by default: results are not logged in normal operation
         logging.getLogger("s2m").warning("agent %s status=%s result=%.300r error=%s", tool, r.status, r.result, getattr(r, "error", None))
     if r.status != "COMPLETED" or r.result is None:
@@ -168,6 +170,10 @@ def _fetch(urls: list[str], links: bool, fmt: str = "markdown", head: bool = Fal
         raise ToolError("TinyFish API key invalid/missing (set TINYFISH_API_KEY)", "AUTH") from e
     except RateLimitError as e:
         raise ToolError("TinyFish rate limit hit; retry shortly", "RATE_LIMIT") from e
+    except (APITimeoutError, RequestTimeoutError) as e:
+        raise ToolError(f"TinyFish Fetch timed out reading {urls[0]}", "TIMEOUT") from e
+    except SDKError as e:
+        raise ToolError(f"TinyFish could not complete the request ({type(e).__name__}); retry shortly", "UPSTREAM_ERROR") from e
     out = {x.url: {"text": x.text, "links": list(x.links or [])} for x in r.results if x.text}
     for e in r.errors or []:
         if "not_found" in str(e.error) or "404" in str(e.error):

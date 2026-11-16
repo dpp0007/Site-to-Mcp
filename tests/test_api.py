@@ -153,3 +153,9 @@ def test_rate_limiter_memory_is_bounded():
     for i in range(20050):
         w.allow(f"k{i}", 1, 0.0)  # window of 0s: every entry is immediately stale
     assert len(w.hits) < 20050
+
+
+def test_rest_bad_argument_is_400_bad_input(client):
+    r = client.post("/api/tools/list_nyc_parks_events", headers=AUTH, json={"date": "tomorrow"})
+    assert r.status_code == 400
+    assert r.json()["error"]["code"] == "BAD_INPUT" and "YYYY-MM-DD" in r.json()["error"]["message"]

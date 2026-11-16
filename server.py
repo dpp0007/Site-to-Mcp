@@ -13,8 +13,11 @@ import anyio
 from mcp.server.fastmcp import FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
 
+import errors
 import universal
 from specs import load_tools
+
+errors.install()  # every tool error starts with a [CODE], including bad arguments ([BAD_INPUT])
 
 SITES = os.environ.get("SITES_DIR", str(Path(__file__).parent / "sites"))
 HOSTED = "--http" in sys.argv

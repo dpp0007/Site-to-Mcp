@@ -82,9 +82,11 @@ Every error is prefixed with a machine-readable code the agent can act on:
 |---|---|
 | `SITE_CHANGED` | page layout / output shape no longer matches (parser found nothing, validation failed, empty result, agent run failed). Agent tools retry once first |
 | `NOT_FOUND` | the course / park / event genuinely does not exist |
-| `BAD_INPUT` | argument failed validation (message says what is valid) |
+| `BAD_INPUT` | argument failed validation. Names the field, what was expected and what was received, e.g. `[BAD_INPUT] list_nyc_parks_events: date: expected a date as YYYY-MM-DD, e.g. 2026-11-21 (got 'tomorrow')` (REST: HTTP 400) |
 | `BLOCKED` | robots.txt disallows automated access |
 | `AUTH` / `RATE_LIMIT` / `TIMEOUT` | TinyFish key invalid / throttled / agent run exceeded `AGENT_TIMEOUT` (240s) |
+| `UPSTREAM_ERROR` | TinyFish unreachable or failed (network, 5xx); retry shortly |
+| `TOOL_ERROR` | unexpected server bug; detail is logged server side, never sent to the client |
 
 Design rules: no silent empty lists (a list tool that returns nothing is `SITE_CHANGED` unless the spec says `allow_empty`), search never reports "no match" because an agent misread a page, partial multi-page reads fail instead of returning half the data.
 
