@@ -159,3 +159,23 @@ def test_rest_bad_argument_is_400_bad_input(client):
     r = client.post("/api/tools/list_nyc_parks_events", headers=AUTH, json={"date": "tomorrow"})
     assert r.status_code == 400
     assert r.json()["error"]["code"] == "BAD_INPUT" and "YYYY-MM-DD" in r.json()["error"]["message"]
+
+
+def _rpc(client, method, key=None, **extra):
+    return client.post("/mcp", json={"jsonrpc": "2.0", "id": 1, "method": method, **extra},
+                       headers={"Authorization": f"Bearer {key or KEY}", "Accept": "application/json, text/event-stream"})
+
+
+def test_protocol_messages_do_not_spend_tool_call_budget(client, monkeypatch):
+    monkeypatch.setattr(api, "PER_MINUTE", 2)
+    client.app  # noqa: B018
+    codes = [_rpc(client, "tools/list").status_code for _ in range(8)]       # chatter: free
+    assert 429 not in codes
+    calls = [_rpc(client, "tools/call", params={"name": "list_python_events", "arguments": {}}).status_code for _ in range(5)]
+    assert 429 in calls                                                      # real calls are still metered
+
+
+def test_chatter_has_its_own_ceiling(client, monkeypatch):
+    monkeypatch.setattr(api, "CHATTER_PER_MINUTE", 3)
+    codes = [_rpc(client, "tools/list").status_code for _ in range(6)]
+    assert 429 in codes

@@ -14,6 +14,6 @@ services:
       - {key: API_KEYS, sync: false}           # name:sha256 hashes from `python keys.py new <name>`
       - {key: ALLOWED_ORIGINS, sync: false}    # your Vercel URL, e.g. https://site-to-mcp.vercel.app
       - {key: ALLOWED_HOSTS, sync: false}      # your Render hostname, e.g. site-to-mcp.onrender.com
-      - {key: RATE_PER_MINUTE, value: "30"}
-      - {key: RATE_PER_DAY, value: "300"}
+      - {key: RATE_PER_MINUTE, value: "60"}
+      - {key: RATE_PER_DAY, value: "1000"}
       - {key: SITE_CACHE_DIR, value: /tmp/s2m-cache}

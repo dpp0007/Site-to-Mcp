@@ -20,8 +20,9 @@ from starlette.responses import JSONResponse
 
 log = logging.getLogger("s2m")
 MAX_BODY = 64 * 1024                      # tool calls are tiny; reject anything bigger
-PER_MINUTE = int(os.environ.get("RATE_PER_MINUTE", "30"))     # per key
-PER_DAY = int(os.environ.get("RATE_PER_DAY", "300"))          # per key: caps TinyFish spend
+PER_MINUTE = int(os.environ.get("RATE_PER_MINUTE", "60"))     # tool calls per operator key
+PER_DAY = int(os.environ.get("RATE_PER_DAY", "1000"))         # per operator key: caps TinyFish spend
+CHATTER_PER_MINUTE = int(os.environ.get("CHATTER_PER_MINUTE", "120"))  # MCP protocol messages (initialize, tools/list...): never spend credits, never counted as tool calls
 PUBLIC_PER_MINUTE = int(os.environ.get("PUBLIC_PER_MINUTE", "60"))  # per IP on public endpoints
 STATUS = {"BAD_INPUT": 400, "NOT_FOUND": 404, "BLOCKED": 403, "RATE_LIMIT": 429, "TIMEOUT": 504,
           "SITE_CHANGED": 502, "AUTH": 502, "UPSTREAM_ERROR": 502, "TOOL_ERROR": 500}
@@ -49,10 +50,10 @@ def load_keys() -> dict[str, str]:
 SECRET = os.environ.get("KEY_SECRET", "").encode()          # signs self-serve keys; unset = signup disabled
 KEY_DAYS = int(os.environ.get("KEY_DAYS", "30"))             # self-serve key lifetime
 SIGNUP_PER_DAY = int(os.environ.get("SIGNUP_PER_DAY", "3"))  # keys one IP may mint per day
-USER_PER_MINUTE = int(os.environ.get("USER_PER_MINUTE", "10"))
-USER_PER_DAY = int(os.environ.get("USER_PER_DAY", "60"))     # per self-serve key
-IP_PER_DAY = int(os.environ.get("IP_PER_DAY", "100"))        # per IP across all its keys: minting more keys doesn't help
-GLOBAL_PER_DAY = int(os.environ.get("GLOBAL_PER_DAY", "1000"))  # all self-serve calls together: caps TinyFish spend
+USER_PER_MINUTE = int(os.environ.get("USER_PER_MINUTE", "30"))
+USER_PER_DAY = int(os.environ.get("USER_PER_DAY", "300"))    # per self-serve key
+IP_PER_DAY = int(os.environ.get("IP_PER_DAY", "600"))        # per IP across all its keys: minting more keys doesn't help
+GLOBAL_PER_DAY = int(os.environ.get("GLOBAL_PER_DAY", "5000"))  # all self-serve calls together: caps TinyFish spend
 REVOKED = {x.strip() for x in os.environ.get("REVOKED_KEYS", "").split(",") if x.strip()}
 
 
@@ -145,12 +146,19 @@ class Guard:
             who = self._who(req)
             if who is None:
                 resp = self._json(401, "UNAUTHORIZED", "missing or invalid API key", {"WWW-Authenticate": "Bearer"})
-            elif who.startswith("u:"):  # self-serve key: tighter per-key limits plus per-IP and global caps
-                if (not self.win.allow(f"m:{who}", USER_PER_MINUTE, 60) or not self.win.allow(f"d:{who}", USER_PER_DAY, 86400)
-                        or not self.win.allow(f"ipd:{ip}", IP_PER_DAY, 86400) or not self.win.allow("global", GLOBAL_PER_DAY, 86400)):
+            else:
+                call, receive, too_big = await self._is_tool_call(req, receive)
+                if too_big:
+                    resp = self._json(413, "BAD_INPUT", "request body too large")
+                elif not call:  # protocol chatter: generous bucket, no daily quota, no credits spent
+                    if not self.win.allow(f"c:{who}", CHATTER_PER_MINUTE, 60):
+                        resp = self._json(429, "RATE_LIMIT", "too many requests", {"Retry-After": "30"})
+                elif who.startswith("u:"):  # self-serve key: tighter per-key limits plus per-IP and global caps
+                    if (not self.win.allow(f"m:{who}", USER_PER_MINUTE, 60) or not self.win.allow(f"d:{who}", USER_PER_DAY, 86400)
+                            or not self.win.allow(f"ipd:{ip}", IP_PER_DAY, 86400) or not self.win.allow("global", GLOBAL_PER_DAY, 86400)):
+                        resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
+                elif not self.win.allow(f"m:{who}", PER_MINUTE, 60) or not self.win.allow(f"d:{who}", PER_DAY, 86400):
                     resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
-            elif not self.win.allow(f"m:{who}", PER_MINUTE, 60) or not self.win.allow(f"d:{who}", PER_DAY, 86400):
-                resp = self._json(429, "RATE_LIMIT", "rate limit exceeded for this key", {"Retry-After": "60"})
         elif not self.win.allow(f"ip:{ip}", PUBLIC_PER_MINUTE, 60):
             resp = self._json(429, "RATE_LIMIT", "too many requests", {"Retry-After": "60"})
         status, got, started = 0, 0, False
@@ -181,6 +189,37 @@ class Guard:
                 await self._json(413, "BAD_INPUT", "request body too large")(scope, receive, send_h)
         finally:  # log who/what/how long only: never bodies, arguments or keys
             log.info("%s %s key=%s auth=%s status=%s ms=%d", req.method, re.sub(r"s2m_u\.[\w.-]+", "s2m_u.***", path), who, how, status, (time.monotonic() - t0) * 1000)
+
+    @staticmethod
+    async def _is_tool_call(req: Request, receive):
+        """(is_call, receive_to_use, too_big). Only tool calls are metered: an MCP exchange also sends initialize,
+        notifications and tools/list, which cost nothing and must not eat a user's per-minute and daily budget.
+        REST /api/tools/* is always a call. For POST /mcp the (size-capped) body is read once and replayed."""
+        if not req.url.path.startswith("/mcp"):
+            return True, receive, False
+        if req.method != "POST":
+            return False, receive, False
+        msgs, got = [], 0
+        while True:
+            m = await receive()
+            msgs.append(m)
+            if m["type"] != "http.request":
+                break
+            got += len(m.get("body", b""))
+            if got > MAX_BODY:
+                return True, receive, True
+            if not m.get("more_body"):
+                break
+
+        async def replay():
+            return msgs.pop(0) if msgs else await receive()
+        try:
+            data = json.loads(b"".join(m.get("body", b"") for m in msgs if m["type"] == "http.request") or b"null")
+            items = data if isinstance(data, list) else [data]
+            call = any(isinstance(i, dict) and i.get("method") == "tools/call" for i in items)
+        except ValueError:
+            call = True  # unparseable: treat as a call (still bounded), never a free pass
+        return call, replay, False
 
     def _who(self, req: Request) -> str | None:
         if not self.keys and not SECRET:  # ALLOW_ANON local dev

@@ -22,7 +22,7 @@ Give `s2m_...` to the user. Put the `name:hash` line in Render's `API_KEYS` (com
 | `ALLOWED_ORIGINS` | your Vercel URL, e.g. `https://site-to-mcp.vercel.app` (no trailing slash) |
 | `ALLOWED_HOSTS` | your Render hostname, e.g. `site-to-mcp.onrender.com` (DNS-rebinding protection) |
 | `PUBLIC_URL` | optional: `https://site-to-mcp.onrender.com`, used in `/api/openapi.json` |
-| `RATE_PER_MINUTE`, `RATE_PER_DAY` | per-key limits (default 30 / 300) |
+| `RATE_PER_MINUTE`, `RATE_PER_DAY` | per-key limits on tool calls (default 60 / 1000). MCP protocol messages (initialize, tools/list) are not counted as calls; they have their own `CHATTER_PER_MINUTE` (120) |
 
 The server refuses to start with no `API_KEYS`. Free plans sleep and cold-start, so use a paid instance for a real product. Rate-limit counters are in memory, so run one instance (or add a shared store before scaling out).
 
