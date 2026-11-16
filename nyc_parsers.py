@@ -113,29 +113,43 @@ def list_events(args: dict) -> dict:
             "total_on_date": int((total.group(1) or total.group(2)).replace(",", "")), "events": events}
 
 
+_DAY = r"(?:Mon|Tues|Wednes|Thurs|Fri|Satur|Sun)day, [A-Z][a-z]+ \d{1,2}, \d{4}"
+
+
+def _head(t: str) -> tuple[str, str, str, str]:
+    """(title, date text, time line, body) of an event page. Some events put a notice between the title and the date
+    (e.g. 'This program requires a Recreation Center membership'), so the date is found by its own shape, not by position."""
+    title = re.match(r"# ([^\n]+)\n", t)
+    d = re.search(rf"^\*\*({_DAY})\*\*[ \t]*$", t, re.M)
+    if not title or not d:
+        raise SiteChangedError("nyc parks: event page has no '# Title' heading followed by a '**Weekday, Month D, YYYY**' line; layout may have changed")
+    time_line, _, body = t[d.end():].lstrip("\n").partition("\n\n")
+    return title.group(1), d.group(1), time_line, body
+
+
 def get_event(args: dict) -> dict:
     url = args["event_url"].strip()
     robots.require(url)
     t = tf.fetch_text(url, 600)  # unknown event -> NOT_FOUND from Fetch
-    h = re.match(r"# ([^\n]+)\n\n\*\*([^\n]+?)\*\*\n\n([^\n]*)\n\n(.*)", t, re.S)
-    if not h:
-        raise SiteChangedError("nyc parks: event page no longer starts with '# Title / **Date** / **time**'")
+    title, date_text, time_line, body = _head(t)
     sec = {m.group(1): m.group(2).strip() for m in re.finditer(r"(?ms)^### ([^\n]+)\n\n(.*?)(?=^#{1,3} |\Z)", t)}
-    start, end = _times(h.group(3))
+    start, end = _times(time_line)
     loc = sec.get("Location", "")
     addr = re.search(r"\*\*Location Details:\*\*\s*\n?([^\n]+)", loc)
     lines = [_clean(l.replace("**", "")) for l in loc.splitlines()
              if l.strip() and not l.startswith(("Directions", "**Location Details"))]
     street = addr.group(1).strip() if addr else next((l for l in lines if re.match(r"\d", l)), None)
     try:
-        day = datetime.strptime(h.group(2), "%A, %B %d, %Y").date().isoformat()
+        day = datetime.strptime(date_text, "%A, %B %d, %Y").date().isoformat()
     except ValueError as e:
-        raise SiteChangedError(f"nyc parks: unreadable event date {h.group(2)!r}") from e
-    desc = _clean(h.group(4).split("### ")[0])
-    return {"name": _clean(h.group(1)), "date": day, "start_time": start, "end_time": end, "description": desc,
+        raise SiteChangedError(f"nyc parks: unreadable event date {date_text!r}") from e
+    body = body.split("### ")[0]
+    instr = re.search(r"\*\*Instructor:\*\*[ \t]*([^\n]+)", body)  # some events name an instructor instead of an organizer
+    desc = _clean(re.sub(r"\*\*Instructor:\*\*[ \t]*[^\n]+", "", body))
+    return {"name": _clean(title), "date": day, "start_time": start, "end_time": end, "description": desc,
             "venue": lines[0] if lines else None, "borough": next((l for l in lines if l in BOROUGHS), None),
             "address": street, "cost": _clean(sec.get("Cost", "")) or None,
-            "organizer": _clean(sec.get("Event Organizer", "")) or None,
+            "organizer": _clean(sec.get("Event Organizer", "")) or (_clean(instr.group(1)) if instr else None),
             "contact_phone": _clean(sec.get("Contact Number", "")) or None,
             "contact_email": _clean(sec.get("Contact Email", "")) or None,
             "categories": [c.strip() for c in sec.get("Categories", "").split(",") if c.strip()]}

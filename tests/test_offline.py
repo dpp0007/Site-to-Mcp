@@ -521,3 +521,44 @@ def test_upstream_sdk_errors_are_coded(monkeypatch):
     monkeypatch.setattr(tf, "client", lambda: Boom)
     with pytest.raises(tf.ToolError, match=r"\[UPSTREAM_ERROR\]"):
         tf._fetch(["https://x.test"], False)
+
+
+# ---- NYC Parks event detail: layout variants, missing pages, real breakage -------------------
+EVT_BODY = ("**Saturday, November 21, 2026**\n\n**11:00 a.m.**\u2013**12:00 p.m.**\n\nGet ready to move in this class.\n\n"
+            "**Instructor:**  Tyesha Stewart\n\n### Location\n\n**Dance Room** in Thomas Jefferson Recreation Center\n\n"
+            "2180 First Avenue\n\nManhattan\n\nDirections to this location\n\n### Cost\n\nFree\n\n"
+            "### Contact Number\n\n(212) 860-1383\n\n### Categories\n\nDance, Fitness\n")
+EVT_URL = "https://www.nycgovparks.org/events/2026/11/21/line-dance-fitness"
+
+
+def test_nyc_event_standard_layout(monkeypatch):
+    pages(monkeypatch, "# Line Dance Fitness\n\n" + EVT_BODY)
+    out = TOOLS["get_nyc_parks_event"].run(event_url=EVT_URL)
+    assert (out.name, str(out.date), out.start_time, out.end_time) == ("Line Dance Fitness", "2026-11-21", "11:00", "12:00")
+    assert out.cost == "Free" and out.borough == "Manhattan" and out.categories == ["Dance", "Fitness"]
+
+
+def test_nyc_event_with_notice_between_title_and_date(monkeypatch):
+    """A real page that carries a membership notice before the date must parse, not raise SITE_CHANGED."""
+    notice = "This program requires an NYC Parks Recreation Center membership.\xa0Become a Member Today\n\n"
+    pages(monkeypatch, "# Line Dance Fitness\n\n" + notice + EVT_BODY)
+    out = TOOLS["get_nyc_parks_event"].run(event_url=EVT_URL)
+    assert out.name == "Line Dance Fitness" and str(out.date) == "2026-11-21" and out.start_time == "11:00"
+    assert "membership" not in out.description and "Instructor" not in out.description and out.organizer == "Tyesha Stewart"
+
+
+def test_nyc_event_missing_page_is_not_found(monkeypatch):
+    def gone(*a, **k):
+        raise tf.NotFoundError("page not found: x")
+    monkeypatch.setattr(tf, "fetch_text", gone)
+    with pytest.raises(tf.NotFoundError, match=r"\[NOT_FOUND\]"):
+        TOOLS["get_nyc_parks_event"].run(event_url=EVT_URL)
+
+
+def test_nyc_event_real_layout_change_is_still_loud(monkeypatch):
+    pages(monkeypatch, "<html>Redesigned event page with no markdown headings</html>")
+    with pytest.raises(tf.SiteChangedError, match=r"\[SITE_CHANGED\]"):
+        TOOLS["get_nyc_parks_event"].run(event_url=EVT_URL)
+    pages(monkeypatch, "# Title only\n\nNo date line anywhere.\n")
+    with pytest.raises(tf.SiteChangedError):
+        TOOLS["get_nyc_parks_event"].run(event_url=EVT_URL)
