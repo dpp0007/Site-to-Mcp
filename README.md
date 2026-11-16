@@ -4,7 +4,20 @@
 
 Turn websites with **no API** into typed MCP tools for your agent. Describe a site in a small YAML file (plus an optional parser); the server registers each entry as a real MCP tool with typed inputs and a typed output, and [TinyFish](https://docs.tinyfish.ai) does the reading and clicking underneath.
 
-**Install in 60 seconds**
+## Use the hosted server (nothing to install, no TinyFish key needed)
+It is already running: **MCP** `https://site-to-mcp.onrender.com/mcp` · **site** https://web-green-eta-92.vercel.app · **REST/OpenAPI** `https://site-to-mcp.onrender.com/api/openapi.json` · health `GET /api/health` -> `{"status":"ok","tools":12}`. The TinyFish key stays on the server.
+
+1. Get a free key: open the site and click **Get a free key** (keys expire after 30 days; 30 tool calls/min, 300/day).
+2. Connect your agent:
+```bash
+claude mcp add --transport http site-to-mcp https://site-to-mcp.onrender.com/mcp --header "Authorization: Bearer YOUR_KEY"
+```
+   Claude Desktop, Cursor and other MCP clients: URL `https://site-to-mcp.onrender.com/mcp` plus the same `Authorization: Bearer` header. ChatGPT: import the OpenAPI URL as an Action, or add the connector URL `https://site-to-mcp.onrender.com/mcp?key=YOUR_KEY`. No client: `curl -X POST https://site-to-mcp.onrender.com/api/tools/list_python_events -H "Authorization: Bearer YOUR_KEY" -H "Content-Type: application/json" -d '{"limit":3}'`.
+3. Ask: *"Check whether luma.com/delhi allows automation and list five events. Then find MIT algorithms courses and what they require, and something free for kids in Brooklyn on 2026-11-21."*
+
+The first call after the server has been idle can take about 15 seconds while it wakes up. Only real tool calls count toward the limits; MCP handshake messages do not.
+
+## Run it yourself (stdio, your own TinyFish key)
 ```bash
 pip install -e .
 export TINYFISH_API_KEY=...            # https://agent.tinyfish.ai/api-keys   (or put it in .env)
@@ -34,7 +47,16 @@ Multi-step use (agent chains tools): `mit_search_courses` -> `mit_get_course` ->
 ## How TinyFish is used
 - **Fetch** (`fetch.get_contents`, no browser credits): reads static pages as markdown (+ links). Deterministic parsers in `mit_parsers.py` / `nyc_parsers.py` turn them into typed data in milliseconds. Used wherever the data is in the page, which is most tools, so responses are fast, cheap and repeatable. Fetch also tells us a page does not exist (`page_not_found`), which becomes `NOT_FOUND` with no agent run.
 - **Agent** (`agent.run`): opens a page that needs a browser (here NPS alerts, loaded by JavaScript), follows a natural-language goal and returns JSON constrained by an `output_schema` generated from the spec. Use it for pages that need clicking, searching or filling forms.
+- **Universal tools** (`check_site_access`, `list_events_from_page`, `extract_from_page`) use both: Fetch to check reachability and read Luma-style pages, Agent to read any other public list page into the columns you name.
 - Everything is re-validated with pydantic before it reaches the agent, so no raw page dumps.
+
+| Tool | Fetch | Agent |
+|---|---|---|
+| `mit_*` (4), `list_nyc_parks_event_categories`, `list_nyc_parks_events`, `get_nyc_parks_event`, `list_python_events` | reads the page, a parser types it | not used |
+| `get_park_conditions` | free pre-check: unknown park -> `NOT_FOUND` | reads the JavaScript-loaded alerts and closures |
+| `check_site_access` | reachability and page checks | not used |
+| `list_events_from_page` | Luma and similar pages (JSON-LD times) | fallback for pages without that structure |
+| `extract_from_page` | not used | reads any list page into your fields |
 
 ## Will it work on another site, and is it allowed? `probe.py`
 Run this **before** writing a spec:
@@ -57,7 +79,7 @@ Paste a link and go. Each tool checks the site's robots.txt for that exact URL f
 | `list_events_from_page(url, limit=20)` | typed events (name, ISO start/end, location, url, host) from any event listing, e.g. a Luma city page `https://luma.com/nyc` |
 | `extract_from_page(url, instruction, fields, limit=20)` | records with the columns you name, from any public list page |
 
-Verified live on `https://luma.com/nyc` (robots allowed; 4 real events with links in ~90s, because a browser agent scrolls the page). Wrong-field slips (e.g. a venue in an `end` date) are rejected and retried, then fail with `[SITE_CHANGED]`. Spec tools are still better for sites you use daily: they are faster, cheaper and have health checks.
+Luma pages (`https://luma.com/nyc`, `/delhi`, ...) are read with TinyFish **Fetch only**: the city page gives names, hosts, venues and links, and each event page's schema.org JSON-LD (via `include_html_head`) gives the exact start and end time with UTC offset. A result takes a few seconds, is identical on every run, and each link is matched to its event by title, so a name is never paired with the wrong URL or time. Other sites fall back to a TinyFish **Agent** read; wrong-field slips (e.g. a venue in an `end` date) are rejected and retried, then fail with `[SITE_CHANGED]`. Spec tools are still better for sites you use daily: they are faster, cheaper and have health checks.
 
 ## Add a site (no Python for agent tools)
 ```yaml
@@ -80,7 +102,7 @@ Every error is prefixed with a machine-readable code the agent can act on:
 
 | Code | Meaning |
 |---|---|
-| `SITE_CHANGED` | page layout / output shape no longer matches (parser found nothing, validation failed, empty result, agent run failed). Agent tools retry once first |
+| `SITE_CHANGED` | page layout / output shape no longer matches (parser found nothing, validation failed, empty result, agent run failed). Agent tools retry up to 3 times first |
 | `NOT_FOUND` | the course / park / event genuinely does not exist |
 | `BAD_INPUT` | argument failed validation. Names the field, what was expected and what was received, e.g. `[BAD_INPUT] list_nyc_parks_events: date: expected a date as YYYY-MM-DD, e.g. 2026-11-21 (got 'tomorrow')` (REST: HTTP 400) |
 | `BLOCKED` | robots.txt disallows automated access |
@@ -107,7 +129,7 @@ Reliability: results cached on disk (`.cache/`; agent tools 10 min, catalogue pa
 `S2M_KEY=... python smoke_prod.py` checks the deployed server end to end: health, auth rejection, CORS, REST and MCP calls, a bad-input error and a Luma events call that must return times from Fetch alone.
 
 ## Layout
-`server.py` registers tools · `specs.py` YAML -> typed tools, validation · `tf.py` TinyFish wrapper (errors, cache, timeouts) · `robots.py` robots gate · `probe.py` site vetting · `health_check.py` · `sites/*.yaml` · `mit_parsers.py`, `nyc_parsers.py` · `demo/run_demo.py` · `tests/`
+`server.py` registers tools · `specs.py` YAML -> typed tools, validation · `tf.py` TinyFish wrapper (errors, cache, timeouts) · `errors.py` one `[CODE]` error contract for every tool · `robots.py` robots gate · `probe.py` site vetting · `health_check.py` · `sites/*.yaml` · `mit_parsers.py`, `nyc_parsers.py` · `demo/run_demo.py` · `tests/`
 
 ## Demo
 **Real conversation:** [`demo/live_session.md`](demo/live_session.md) is Claude using the deployed server on 2026-11-09: access check then Luma events, MIT search then course detail, NYC Parks filtered by borough, including a failure and the fix.
